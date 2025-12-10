@@ -261,13 +261,18 @@
 					  </div>
 					</div>
 					<button type="button" id="addValorAnexo" class="text-emerald-600 hover:text-emerald-800 text-sm font-medium flex items-center gap-1">
-					  <i class="fas fa-plus"></i> Detalhar por Anexo
-					</button>
+					  <i class="fas fa-plus"></i> Detalhar por Anexo </button>		
+					<div class="md:col-span-3">
+					  <label class="block text-xs font-medium text-gray-700 mb-1">Massa Salarial (Anexo V)</label>
+					  <input type="number" id="massaSalarial" step="0.01" min="0" 
+							 class="w-full border border-purple-200 rounded-lg p-2.5 text-sm font-medium text-purple-700 placeholder-gray-400 bg-purple-50" 
+							 placeholder="R$ 0,00 (folha + pró-labore + encargos)">
+					  <p class="text-xs text-purple-600 mt-1">Preencher apenas para empresas Anexo V</p>
+					</div>
 					<div class="md:col-span-3 flex justify-end gap-3">
-						 <button type="button" id="limparFaturamento" class="px-4 py-2 text-gray-500 hover:text-gray-700">Limpar</button>
+						<button type="button" id="limparFaturamento" class="px-4 py-2 text-gray-500 hover:text-gray-700">Limpar</button>
 						<button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium shadow-sm">
-							<i class="fas fa-save mr-2"></i> Salvar Faturamento
-						</button>
+							<i class="fas fa-save mr-2"></i> Salvar Faturamento</button>
 					</div>
 				</form>
 

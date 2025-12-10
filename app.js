@@ -257,6 +257,15 @@
 			initAnexosMultiplos();
 			initValoresAnexo();
 			
+			// Ocultar massa salarial inicialmente
+			const massaSalarialInput = document.getElementById('massaSalarial');
+			if (massaSalarialInput) {
+			  massaSalarialInput.addEventListener('input', () => {
+				// Atualizar total automaticamente se quiser
+				atualizarTotalAnexos();
+			  });
+			}
+			
 			// Carregar dados
 			carregarClientes();
 			carregarSituacoes();
@@ -1314,7 +1323,13 @@
 								`).join('')}
 							</div>
 						</div>
-					` : ''}				
+					` : ''}
+					${f.massaSalarial ? `
+					  <div class="mt-2 p-2 bg-purple-50 border border-purple-100 rounded">
+						<span class="text-xs text-purple-700 font-medium">Massa Salarial:</span>
+						<span class="text-sm font-bold text-purple-800 ml-2">${formatarMoeda(f.massaSalarial)}</span>
+					  </div>
+					` : ''}					
 					<div class="flex justify-between items-center mt-2 pt-2 border-t border-gray-100">
 						<span class="text-xs text-gray-500">CNPJ: ${formatarCNPJ(f.cnpj)}</span>
 						<button onclick="editarFaturamento('${f.id}')" class="text-brand-600 hover:bg-brand-50 p-1.5 rounded text-sm">
@@ -1384,6 +1399,57 @@
 		  document.getElementById('faturamentoForm').scrollIntoView({ behavior: 'smooth' });
 		  mostrarMensagem('Faturamento carregado para edição', 'warning');
 		}
+		
+		// Calcular Fator R para empresa específica
+		function calcularFatorR(cnpj, mesReferencia) {
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
+		  
+		  // 1. Verificar se é Anexo V
+		  const situacaoAtual = buscarSituacaoAtual(cnpj, mesReferencia);
+		  if (!situacaoAtual || situacaoAtual.tributacao !== 'simples') return null;
+		  
+		  const anexosV = situacaoAtual.anexos?.some(a => a.anexo === 'V') || false;
+		  if (!anexosV) return null;
+		  
+		  // 2. Receita Bruta 12 meses anteriores
+		  const dataLimite = new Date(mesReferencia + '-01');
+		  dataLimite.setMonth(dataLimite.getMonth() - 12);
+		  
+		  const receita12Meses = faturamentos
+			.filter(f => f.cnpj === cnpj)
+			.filter(f => new Date(f.mes + '-01') >= dataLimite)
+			.reduce((total, f) => total + parseFloat(f.valor || 0), 0);
+		  
+		  if (receita12Meses === 0) return 0;
+		  
+		  // 3. Massa Salarial 12 meses anteriores (último mês disponível)
+		  const massaSalarial12Meses = faturamentos
+			.filter(f => f.cnpj === cnpj)
+			.filter(f => new Date(f.mes + '-01') >= dataLimite)
+			.reduce((total, f) => total + parseFloat(f.massaSalarial || 0), 0);
+		  
+		  // 4. Fator R = Massa Salarial / Receita Bruta
+		  const fatorR = (massaSalarial12Meses / receita12Meses) * 100;
+		  
+		  return {
+			fatorR: fatorR.toFixed(2),
+			anexoEfetivo: fatorR >= 28 ? 'III' : 'V',
+			receita12Meses,
+			massaSalarial12Meses
+		  };
+		}
+
+		// Obter Anexo efetivo para cálculo (considera Fator R)
+		function getAnexoEfetivoParaCalculo(cnpj, mesReferencia) {
+		  const fatorR = calcularFatorR(cnpj, mesReferencia);
+		  if (!fatorR) return null;
+		  
+		  return {
+			anexo: fatorR.anexoEfetivo,
+			fatorR: fatorR.fatorR + '%'
+		  };
+		}
 
 		// Atualizar a função de submit para lidar com edição
 		function salvarFaturamento(e) {
@@ -1391,47 +1457,55 @@
 
 		  const cnpj = document.getElementById('cnpjFaturamento').value;
 		  const mes = document.getElementById('mesFaturamento').value;
-		  const valor = parseFloat(document.getElementById('valorFaturamento').value) || 0;
+		  const valor = parseFloat(document.getElementById('valorFaturamento').value.replace(',', '.')) || 0;
+		  const massaSalarial = parseFloat(document.getElementById('massaSalarial')?.value.replace(',', '.') || 0);
+		  
 		  const form = document.getElementById('faturamentoForm');
 		  const editId = form.dataset.editId;
 
-		  let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  if (!cnpj || !mes || valor === 0) {
+			mostrarMensagem('Preencha empresa, mês e valor!', 'error');
+			return;
+		  }
 
+		  let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
 		  const valoresAnexo = getValoresAnexoData();
 
 		  if (editId) {
-			// Atualizar existente
+			// Edição
 			const index = faturamentos.findIndex(f => f.id === editId);
 			if (index !== -1) {
 			  faturamentos[index] = {
-				...faturamentos[index],
+				id: editId,
 				cnpj,
 				mes,
 				valor,
+				massaSalarial,  // ← NOVO CAMPO
 				valoresAnexo
 			  };
+			  mostrarMensagem('Faturamento atualizado!');
 			}
-			mostrarMensagem('Faturamento atualizado!');
 			delete form.dataset.editId;
 		  } else {
-			// Remover existente do mesmo mês para sobrescrever
+			// Novo - remover duplicata do mesmo mês
 			faturamentos = faturamentos.filter(v => !(v.cnpj === cnpj && v.mes === mes));
-
+			
 			faturamentos.push({
 			  id: Date.now().toString(),
 			  cnpj,
 			  mes,
 			  valor,
+			  massaSalarial,  // ← NOVO CAMPO
 			  valoresAnexo
 			});
-
 			mostrarMensagem('Faturamento registrado!');
 		  }
 
 		  localStorage.setItem('faturamento', JSON.stringify(faturamentos));
 		  form.reset();
-
-		  const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
+		  
+		  // Resetar botão
+		  const submitBtn = form.querySelector('button[type="submit"]');
 		  if (submitBtn) {
 			submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> Salvar Faturamento';
 			submitBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
@@ -1675,6 +1749,27 @@
 			let detalhes = [];
 
 			if (regime === 'simples') {
+			    // Verificar Fator R para Anexo V
+				const fatorRInfo = getAnexoEfetivoParaCalculo(cnpj, mesReferencia);
+				let anexoEfetivo = situacao.anexos?.[0]?.anexo || 'III'; // Primeiro anexo por padrão
+				  
+				if (fatorRInfo && anexoEfetivo === 'V') {
+					anexoEfetivo = fatorRInfo.anexo;
+				}
+				  
+				resultadoDiv.innerHTML = `
+					<div class="space-y-4">
+					  <div class="bg-green-50 p-4 rounded-lg border border-green-200">
+						<h3 class="font-bold text-lg text-green-800 mb-2">Simples Nacional - ${anexoEfetivo}</h3>
+						${fatorRInfo ? `
+						  <p class="text-sm text-green-700">
+							<i class="fas fa-calculator mr-1"></i> Fator R: <strong>${fatorRInfo.fatorR}</strong> 
+							${fatorRInfo.anexo === 'III' ? '(Anexo III - vantajoso)' : '(Anexo V)'}
+						  </p>
+						` : ''}
+						<p class="text-sm text-green-700 mt-2">Faturamento: ${formatarMoeda(valorFaturamento)}</p>
+					</div>
+				`;
 				// Lógica do Simples Nacional com vigência
 				const faixas = JSON.parse(localStorage.getItem('paramFaixasSimples')) || [];
 				const anexo = situacao.anexo;
@@ -2019,6 +2114,7 @@
 				</div>
 			`;
 			resultadoDiv.classList.remove('hidden');
+			return;
 		}
 
 		// Função para calcular RBT12 (Receita Bruta Total dos últimos 12 meses)
