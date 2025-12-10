@@ -1115,29 +1115,29 @@
 
         // --- 5. VENDAS ---
         // Função para salvar faturamento (antiga salvarVendas)
-		function salvarFaturamento(e) {
-			e.preventDefault();			
-			const cnpj = document.getElementById('cnpjFaturamento').value;
-			const mes = document.getElementById('mesFaturamento').value;
-			const valor = parseFloat(document.getElementById('valorFaturamento').value);
+	//	function salvarFaturamento(e) {
+	//		e.preventDefault();			
+	//		const cnpj = document.getElementById('cnpjFaturamento').value;
+	//		const mes = document.getElementById('mesFaturamento').value;
+	//		const valor = parseFloat(document.getElementById('valorFaturamento').value);
 			
-			if (isNaN(valor) || valor < 0) {
-				mostrarMensagem("Valor do faturamento inválido.", 'error');
-				return;
-			}
+	//		if (isNaN(valor) || valor < 0) {
+	//			mostrarMensagem("Valor do faturamento inválido.", 'error');
+	//			return;
+	//		}
 
-			let faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
+	//		let faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
 			
 			// Remove existente do mesmo mês para sobrescrever
-			faturamentos = faturamentos.filter(v => !(v.cnpj === cnpj && v.mes === mes));
+	//		faturamentos = faturamentos.filter(v => !(v.cnpj === cnpj && v.mes === mes));
 			
-			faturamentos.push({ id: Date.now().toString(), cnpj, mes, valor, valoresAnexo: getValoresAnexoData(), });
-			localStorage.setItem('faturamento', JSON.stringify(faturamentos));
-			document.getElementById('faturamentoForm').reset();
-			carregarFaturamento();
-			atualizarGraficoFaturamento();
-			mostrarMensagem("Faturamento registrado!");
-		}
+	//		faturamentos.push({ id: Date.now().toString(), cnpj, mes, valor, valoresAnexo: getValoresAnexoData(), });
+	//		localStorage.setItem('faturamento', JSON.stringify(faturamentos));
+	//		document.getElementById('faturamentoForm').reset();
+	//		carregarFaturamento();
+	//		atualizarGraficoFaturamento();
+	//		mostrarMensagem("Faturamento registrado!");
+	//	}
 		
 		function initValoresAnexo() {
 		  const empresaSelect = document.getElementById('cnpjFaturamento');
@@ -1207,17 +1207,23 @@
 		}
 
 		function getValoresAnexoData() {
+		  const container = document.getElementById('valoresAnexoContainer');
+		  if (!container) return [];
+
 		  const valores = [];
-		  document.querySelectorAll('.valor-anexo-item').forEach(item => {
+		  container.querySelectorAll('.valor-anexo-item').forEach(item => {
 			const select = item.querySelector('select');
 			const input = item.querySelector('input');
-			if (select.value && input.value) {
+			const valor = parseFloat(input.value.replace(',', '.')) || 0;
+
+			if (select && select.value && valor > 0) {
 			  valores.push({
 				anexo: select.value,
-				valor: parseFloat(input.value)
+				valor: valor
 			  });
 			}
 		  });
+
 		  return valores;
 		}
 
@@ -1336,97 +1342,123 @@
 
 		// Função para editar faturamento
 		function editarFaturamento(id) {
-			const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
-			const faturamento = faturamentos.find(f => f.id === id);
-			
-			if (!faturamento) return;
-			
-			// Preencher formulário
-			document.getElementById('cnpjFaturamento').value = faturamento.cnpj;
-			document.getElementById('mesFaturamento').value = faturamento.mes;
-			document.getElementById('valorFaturamento').value = faturamento.valor;
-			
-			// Alterar texto do botão
-			const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
-			if (submitBtn) {
-				submitBtn.innerHTML = '<i class="fas fa-sync-alt mr-2"></i> Atualizar Faturamento';
-				submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
-				submitBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  const faturamento = faturamentos.find(f => f.id === id);
+		  if (!faturamento) return;
+
+		  document.getElementById('cnpjFaturamento').value = faturamento.cnpj;
+		  document.getElementById('mesFaturamento').value = faturamento.mes;
+		  document.getElementById('valorFaturamento').value = faturamento.valor;
+
+		  const form = document.getElementById('faturamentoForm');
+		  form.dataset.editId = id;
+
+		  const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
+		  if (submitBtn) {
+			submitBtn.innerHTML = '<i class="fas fa-sync-alt mr-2"></i> Atualizar Faturamento';
+			submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+			submitBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+		  }
+
+		  // Reconstruir valores por anexo
+		  const container = document.getElementById('valoresAnexoContainer');
+		  const detalharBtn = document.getElementById('addValorAnexo');
+		  if (container && detalharBtn) {
+			container.innerHTML = '';
+			if (faturamento.valoresAnexo && faturamento.valoresAnexo.length > 0) {
+			  container.classList.remove('hidden');
+			  faturamento.valoresAnexo.forEach(v => {
+				const div = createValorAnexoItem();
+				const select = div.querySelector('select');
+				const input = div.querySelector('input');
+				if (select) select.value = v.anexo;
+				if (input) input.value = v.valor;
+				container.appendChild(div);
+			  });
+			} else {
+			  container.classList.add('hidden');
 			}
-			
-			// Adicionar ID ao formulário para identificação
-			document.getElementById('faturamentoForm').dataset.editId = id;
-			
-			// Mudar para aba de faturamento
-			switchTab('faturamento');
-			
-			// Rolar até o formulário
-			document.getElementById('faturamentoForm').scrollIntoView({ behavior: 'smooth' });
-			
-			mostrarMensagem("Faturamento carregado para edição", 'warning');
+		  }
+
+		  switchTab('faturamento');
+		  document.getElementById('faturamentoForm').scrollIntoView({ behavior: 'smooth' });
+		  mostrarMensagem('Faturamento carregado para edição', 'warning');
 		}
 
 		// Atualizar a função de submit para lidar com edição
 		function salvarFaturamento(e) {
-			e.preventDefault();
-			const cnpj = document.getElementById('cnpjFaturamento').value;
-			const mes = document.getElementById('mesFaturamento').value;
-			const valor = parseFloat(document.getElementById('valorFaturamento').value);
-			const form = document.getElementById('faturamentoForm');
-			const editId = form.dataset.editId;
-			
-			if (isNaN(valor) || valor < 0) {
-				mostrarMensagem("Valor do faturamento inválido.", 'error');
-				return;
-			}
+		  e.preventDefault();
 
-			let faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
-			
-			if (editId) {
-				// Atualizar existente
-				const index = faturamentos.findIndex(f => f.id === editId);
-				if (index !== -1) {
-					faturamentos[index] = { ...faturamentos[index], cnpj, mes, valor };
-					mostrarMensagem("Faturamento atualizado!");
-				}
-				delete form.dataset.editId;
-			} else {
-				// Remove existente do mesmo mês para sobrescrever
-				faturamentos = faturamentos.filter(v => !(v.cnpj === cnpj && v.mes === mes));
-				faturamentos.push({ id: Date.now().toString(), cnpj, mes, valor });
-				mostrarMensagem("Faturamento registrado!");
+		  const cnpj = document.getElementById('cnpjFaturamento').value;
+		  const mes = document.getElementById('mesFaturamento').value;
+		  const valor = parseFloat(document.getElementById('valorFaturamento').value) || 0;
+		  const form = document.getElementById('faturamentoForm');
+		  const editId = form.dataset.editId;
+
+		  let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+
+		  const valoresAnexo = getValoresAnexoData();
+
+		  if (editId) {
+			// Atualizar existente
+			const index = faturamentos.findIndex(f => f.id === editId);
+			if (index !== -1) {
+			  faturamentos[index] = {
+				...faturamentos[index],
+				cnpj,
+				mes,
+				valor,
+				valoresAnexo
+			  };
 			}
-			
-			localStorage.setItem('faturamento', JSON.stringify(faturamentos));
-			form.reset();
-			
-			// Resetar botão
-			const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
-			if (submitBtn) {
-				submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> Salvar Faturamento';
-				submitBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
-				submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-			}
-			
-			carregarFaturamento();
-			atualizarGraficoFaturamento();
+			mostrarMensagem('Faturamento atualizado!');
+			delete form.dataset.editId;
+		  } else {
+			// Remover existente do mesmo mês para sobrescrever
+			faturamentos = faturamentos.filter(v => !(v.cnpj === cnpj && v.mes === mes));
+
+			faturamentos.push({
+			  id: Date.now().toString(),
+			  cnpj,
+			  mes,
+			  valor,
+			  valoresAnexo
+			});
+
+			mostrarMensagem('Faturamento registrado!');
+		  }
+
+		  localStorage.setItem('faturamento', JSON.stringify(faturamentos));
+		  form.reset();
+
+		  const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
+		  if (submitBtn) {
+			submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> Salvar Faturamento';
+			submitBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+			submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+		  }
+
+		  carregarFaturamento();
+		  atualizarGraficoFaturamento();
 		}
 
 		// Função para atualizar gráfico de faturamento
 		function atualizarGraficoFaturamento() {
-			const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
-			const clientes = JSON.parse(localStorage.getItem('clientes')) || [];
-			const container = document.getElementById('graficoFaturamento');
-			
-			if (faturamentos.length === 0) {
-				container.innerHTML = `
-					<div class="text-center text-gray-400">
-						<i class="fas fa-chart-bar text-2xl mb-2"></i>
-						<p class="text-sm">Gráfico será gerado após cadastro de dados</p>
-					</div>
-				`;
-				return;
-			}
+		  const container = document.getElementById('graficoFaturamento');
+		  if (!container) return; // ← evita erro se o elemento não existir
+
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  const clientes = JSON.parse(localStorage.getItem('clientes') || '[]');
+
+		  if (!faturamentos.length) {
+			container.innerHTML = `
+			  <div class="text-center text-gray-400">
+				<i class="fas fa-chart-bar text-2xl mb-2"></i>
+				<p class="text-sm">Gráfico será gerado após cadastro de dados</p>
+			  </div>
+			`;
+			return;
+		  }
 			
 			// Agrupar por mês
 			const faturamentoPorMes = {};
