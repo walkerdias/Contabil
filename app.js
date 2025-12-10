@@ -363,7 +363,7 @@
 			}, 100); // Pequeno delay para garantir que o DOM está completamente carregado
 			
 			// Cálculo listener
-			document.getElementById('calcularImpostos').addEventListener('click', calcularImpostosComVigencia);
+			//document.getElementById('calcularImpostos').addEventListener('click', calcularImpostosComVigencia);
 			
 			// Modal handlers
 			document.getElementById('modalCancel').addEventListener('click', fecharModal);
@@ -1711,10 +1711,13 @@
 		// FUNÇÃO CÁLCULO DE IMPOSTOS COM VIGÊNCIA
 		// ====================================================
 
-		function calcularImpostosComVigencia() {
+		function calcularImpostos() {
 			const cnpj = document.getElementById('cnpjCalculo').value;
-			const mesReferencia = document.getElementById('mesCalculo').value; // formato YYYY-MM
+			const mesReferencia = document.getElementById('mesCalculo').value;
 			const resultadoDiv = document.getElementById('resultadoCalculo');
+			
+			if (!resultadoDiv) return;
+			
 			resultadoDiv.classList.add('hidden');
 			resultadoDiv.innerHTML = '';
 
@@ -1723,8 +1726,8 @@
 				return;
 			}
 
-			// 1. Encontrar o registro de Faturamento
-			const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
+			// 1. Encontrar faturamento
+			const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
 			const faturamentoMes = faturamentos.find(v => v.cnpj === cnpj && v.mes === mesReferencia);
 			
 			if (!faturamentoMes) {
@@ -1734,8 +1737,8 @@
 			}
 			
 			const valorFaturamento = parseFloat(faturamentoMes.valor);
-			
-			// 2. Encontrar a Situação Tributária
+
+			// 2. Encontrar situação tributária
 			const situacao = buscarSituacaoAtual(cnpj, mesReferencia);
 			
 			if (!situacao) {
@@ -1749,51 +1752,59 @@
 			let detalhes = [];
 
 			if (regime === 'simples') {
-			    // Verificar Fator R para Anexo V
+				// ✅ CORRIGIDO: Determinar anexo efetivo (Fator R + múltiplos anexos)
+				let anexos = Array.isArray(situacao.anexos) ? situacao.anexos : [];
+				let anexoPrincipal = anexos.length > 0 ? anexos[0].anexo : 'III'; // Primeiro anexo
+				
+				// Verificar Fator R se tem Anexo V
 				const fatorRInfo = getAnexoEfetivoParaCalculo(cnpj, mesReferencia);
-				let anexoEfetivo = situacao.anexos?.[0]?.anexo || 'III'; // Primeiro anexo por padrão
-				  
-				if (fatorRInfo && anexoEfetivo === 'V') {
-					anexoEfetivo = fatorRInfo.anexo;
+				if (fatorRInfo && anexoPrincipal === 'V') {
+					anexoPrincipal = fatorRInfo.anexo; // III ou V baseado no Fator R
 				}
-				  
-				resultadoDiv.innerHTML = `
+
+				// Mostrar cabeçalho com Fator R
+				let cabecalho = `
 					<div class="space-y-4">
-					  <div class="bg-green-50 p-4 rounded-lg border border-green-200">
-						<h3 class="font-bold text-lg text-green-800 mb-2">Simples Nacional - ${anexoEfetivo}</h3>
-						${fatorRInfo ? `
-						  <p class="text-sm text-green-700">
+						<div class="bg-green-50 p-4 rounded-lg border border-green-200">
+							<h3 class="font-bold text-lg text-green-800 mb-2">Simples Nacional - Anexo ${anexoPrincipal}</h3>
+							<p class="text-sm text-green-700">Faturamento: ${formatarMoeda(valorFaturamento)}</p>
+				`;
+				
+				if (fatorRInfo) {
+					cabecalho += `
+						<p class="text-sm text-green-700 mt-1">
 							<i class="fas fa-calculator mr-1"></i> Fator R: <strong>${fatorRInfo.fatorR}</strong> 
 							${fatorRInfo.anexo === 'III' ? '(Anexo III - vantajoso)' : '(Anexo V)'}
-						  </p>
-						` : ''}
-						<p class="text-sm text-green-700 mt-2">Faturamento: ${formatarMoeda(valorFaturamento)}</p>
-					</div>
-				`;
-				// Lógica do Simples Nacional com vigência
-				const faixas = JSON.parse(localStorage.getItem('paramFaixasSimples')) || [];
-				const anexo = situacao.anexo;
-				
-				// Filtrar faixas do anexo correto e com vigência <= mês de referência
+						</p>
+					`;
+				}
+				cabecalho += `</div>`;
+
+				// Buscar faixas parametrizadas para o ANEXO CORRETO
+				const faixas = JSON.parse(localStorage.getItem('paramFaixasSimples') || '[]');
 				const faixasVigentes = faixas.filter(f => 
-					f.anexo === anexo && 
+					f.anexo === anexoPrincipal &&  // ← CORRIGIDO: usar anexoPrincipal
 					f.vigencia <= mesReferencia
 				);
-				
+
 				if (faixasVigentes.length === 0) {
-					resultadoDiv.innerHTML = `<div class="p-4 bg-red-100 border border-red-300 rounded-lg text-red-800 text-center">Nenhuma faixa do Simples Nacional encontrada para o Anexo ${anexo} vigente em ${mesReferencia}.</div>`;
+					resultadoDiv.innerHTML = `
+						<div class="p-4 bg-red-100 border border-red-300 rounded-lg text-red-800 text-center">
+							Nenhuma faixa do Simples Nacional encontrada para o Anexo <strong>${anexoPrincipal}</strong> vigente em ${mesReferencia}.
+							<br><br>
+							<small>Verifique se parametrizou as faixas do Anexo ${anexoPrincipal} em "Parametrização > Simples Nacional".</small>
+						</div>
+					`;
 					resultadoDiv.classList.remove('hidden');
 					return;
 				}
-				
-				// Ordenar por vigência (mais recente primeiro) e pegar a mais recente
+
+				// Faixa mais recente
 				faixasVigentes.sort((a, b) => b.vigencia.localeCompare(a.vigencia));
 				const vigenciaAtual = faixasVigentes[0].vigencia;
-				
-				// Filtrar apenas as faixas da vigência mais recente
 				const faixasVigenciaAtual = faixasVigentes.filter(f => f.vigencia === vigenciaAtual);
-				
-				// Calcular RBT12 (Receita Bruta Total nos 12 meses anteriores)
+
+				// Calcular RBT12
 				const rbt12 = calcularRBT12(cnpj, mesReferencia);
 
 				const faixaAplicavel = faixasVigenciaAtual.find(f => 
@@ -1805,13 +1816,11 @@
 					const aliquota = parseFloat(faixaAplicavel.aliquota) / 100;
 					const deducao = parseFloat(faixaAplicavel.deduzir);
 					
-					// Cálculo do Simples (Alíquota Efetiva)
-					// (RBT12 * Alíquota Nominal - Parcela a Deduzir) / RBT12
+					// Alíquota efetiva
 					const aliquotaEfetiva = ((rbt12 * aliquota) - deducao) / rbt12;
-					
 					impostoCalculado = valorFaturamento * aliquotaEfetiva;
-					
-					// Calcular repartição por tributo
+
+					// Repartição por tributo
 					let reparticaoDetalhes = [];
 					if (faixaAplicavel.reparticao) {
 						Object.entries(faixaAplicavel.reparticao).forEach(([tributo, percentual]) => {
@@ -1825,34 +1834,17 @@
 							}
 						});
 					}
-					
-					detalhes.push({ 
-						descricao: "Base de Cálculo (Venda do Mês)", 
-						valor: formatarMoeda(valorFaturamento), 
-						icone: 'fas fa-money-bill-wave' 
-					});
-					detalhes.push({ 
-						descricao: "RBT12 (12 meses anteriores)", 
-						valor: formatarMoeda(rbt12), 
-						icone: 'fas fa-chart-line' 
-					});
-					detalhes.push({ 
-						descricao: `Anexo ${anexo}`, 
-						valor: `Vigência ${vigenciaAtual}`, 
-						icone: 'fas fa-clipboard-list' 
-					});
-					detalhes.push({ 
-						descricao: "Faixa Aplicada", 
-						valor: faixaAplicavel.nome, 
-						icone: 'fas fa-layer-group' 
-					});
-					detalhes.push({ 
-						descricao: "Alíquota Efetiva", 
-						valor: `${(aliquotaEfetiva * 100).toFixed(2)}%`, 
-						icone: 'fas fa-percentage' 
-					});
 
-					// Adicionar detalhes da repartição
+					// Detalhes do cálculo
+					detalhes = [
+						{ descricao: "Base de Cálculo (Venda do Mês)", valor: formatarMoeda(valorFaturamento), icone: 'fas fa-money-bill-wave' },
+						{ descricao: "RBT12 (12 meses anteriores)", valor: formatarMoeda(rbt12), icone: 'fas fa-chart-line' },
+						{ descricao: `Anexo ${anexoPrincipal}`, valor: `Vigência ${vigenciaAtual}`, icone: 'fas fa-clipboard-list' },
+						{ descricao: "Faixa Aplicada", valor: faixaAplicavel.nome, icone: 'fas fa-layer-group' },
+						{ descricao: "Alíquota Efetiva", valor: `${(aliquotaEfetiva * 100).toFixed(2)}%`, icone: 'fas fa-percentage' }
+					];
+
+					// Adicionar repartição
 					reparticaoDetalhes.forEach(rep => {
 						detalhes.push({
 							descricao: `  → ${rep.tributo} (${rep.percentual.toFixed(2)}%)`,
@@ -1864,10 +1856,10 @@
 
 				} else {
 					detalhes.push({ 
-						descricao: "Erro de Parametrização", 
-						valor: `Nenhuma faixa do Simples Nacional encontrada para o Anexo ${anexo}, vigência ${vigenciaAtual} e RBT12 de ${formatarMoeda(rbt12)}.`,
-						icone: 'fas fa-bug',
-						color: 'text-red-600'
+						descricao: "Erro de Faixa", 
+						valor: `Nenhuma faixa encontrada para RBT12 ${formatarMoeda(rbt12)} no Anexo ${anexoPrincipal}`, 
+						icone: 'fas fa-exclamation-triangle', 
+						color: 'text-red-600' 
 					});
 				}
 			} else if (regime === 'presumido') {
@@ -2085,7 +2077,7 @@
 			}
 
 			// Renderizar Resultado
-			const cliente = JSON.parse(localStorage.getItem('clientes')).find(c => c.cnpj === cnpj);
+			const cliente = JSON.parse(localStorage.getItem('clientes') || '[]').find(c => c.cnpj === cnpj);
 			const nomeCliente = cliente ? cliente.nomeFantasia : 'Empresa Desconhecida';
 			
 			let htmlDetalhes = detalhes.map(d => `
@@ -2099,12 +2091,13 @@
 			`).join('');
 			
 			resultadoDiv.innerHTML = `
-				<h3 class="text-2xl font-bold text-gray-800 mb-2">${nomeCliente}</h3>
+				${cabecalho || ''}
+				<h3 class="text-xl font-bold text-gray-800 mb-2">${nomeCliente}</h3>
 				<p class="text-sm text-purple-600 mb-6 font-medium">
 					Referência: ${mesReferencia} | Regime: ${regime.toUpperCase()}
 				</p>
 				
-				<div class="space-y-4">
+				<div class="space-y-4 bg-white p-4 rounded-lg border shadow-sm">
 					${htmlDetalhes}
 				</div>
 				
@@ -2114,7 +2107,6 @@
 				</div>
 			`;
 			resultadoDiv.classList.remove('hidden');
-			return;
 		}
 
 		// Função para calcular RBT12 (Receita Bruta Total dos últimos 12 meses)
@@ -2144,11 +2136,6 @@
 			});
 			
 			return rbt12;
-		}
-
-		// Atualizar a função de cálculo para usar a nova função com vigência
-		function calcularImpostos() {
-			calcularImpostosComVigencia();
 		}
 
         // --- 7. UTILITÁRIOS GERAIS ---
