@@ -208,6 +208,9 @@
 			<button onclick="switchTab('calculo')" class="tab-button flex-1 min-w-[120px] py-3 px-4 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all" data-tab="calculo">
 				<i class="fas fa-calculator mr-2"></i> Cálculo
 			</button>
+			<button onclick="switchTab('resumo')" class="tab-button flex-1 min-w-[120px] py-3 px-4 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all" data-tab="resumo">
+				<i class="fas fa-table mr-2"></i> Resumo
+			</button>
 			<button onclick="switchTab('cliente')" class="tab-button flex-1 min-w-[120px] py-3 px-4 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all" data-tab="cliente">
 				<i class="fas fa-user-tie mr-2"></i> Clientes
 			</button>
@@ -229,51 +232,55 @@
 					<i class="fas fa-chart-line text-green-600"></i> Registrar Faturamento Mensal
 				</h2>
 				
-				<form id="faturamentoForm" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-					<div class="md:col-span-1">
-						<label class="block text-xs font-medium text-gray-700 mb-1">Empresa</label>
-						<select id="cnpjFaturamento" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required>
-							<option value="">Selecione...</option>
-						</select>
+				<form id="faturamentoForm" class="space-y-4">
+				  <input type="hidden" id="faturamentoId">
+				  
+				  <!-- Empresa e Mês -->
+				  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+					<div>
+					  <label class="block text-xs font-medium text-gray-700 mb-1">Empresa *</label>
+					  <select id="cnpjFaturamento" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required>
+						<option value="">Selecione...</option>
+					  </select>
 					</div>
 					<div>
-						<label class="block text-xs font-medium text-gray-700 mb-1">Mês de Referência</label>
-						<input type="month" id="mesFaturamento" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required>
+					  <label class="block text-xs font-medium text-gray-700 mb-1">Mês/Ano *</label>
+					  <input type="month" id="mesFaturamento" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required>
 					</div>
-					<div>
-						<label class="block text-xs font-medium text-gray-700 mb-1">Valor Total (R$)</label>
-						<input type="number" id="valorFaturamento" step="0.01" min="0" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-bold text-green-700" placeholder="0,00" required>
+				  </div>
+
+				  <!-- TOTAL Faturamento (apenas exibição)
+				  <div class="bg-gray-50 p-4 rounded-lg border">
+					<label class="block text-sm font-medium text-gray-700 mb-2">Total Faturamento</label>
+					<input type="text" id="totalFaturamento" class="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-sm font-semibold text-2xl text-right" readonly>
+				  </div> -->
+
+				  <!-- SEGREGAÇÃO AUTOMÁTICA POR ANEXO -->
+				  <div id="segregacaoAnexos" class="space-y-4 hidden">
+					<h4 class="font-bold text-lg text-blue-800 flex items-center gap-2">
+					  <i class="fas fa-layer-group"></i> Segregação por Anexo
+					</h4>
+					
+					<!-- Campos dinâmicos por anexo serão inseridos aqui -->
+					<div id="camposAnexos"></div>
+					
+					<div class="bg-green-50 p-4 rounded-lg border border-green-200 text-sm">
+						<div class="flex justify-between items-center">
+						  <span><strong>Total de Faturamento:</strong></span>
+						  <span id="somaTotalAnexos" class="font-bold text-green-800 text-lg">R$ 0,00</span>
+						</div>
 					</div>
-					<div id="valoresAnexoContainer" class="md:col-span-3 space-y-3 hidden">
-					  <div class="valor-anexo-item flex items-end gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-						<select class="flex-1 border border-emerald-200 rounded-lg p-2.5 text-sm bg-white">
-						  <option value="">Anexo</option>
-						  <option value="I">Anexo I</option>
-						  <option value="II">Anexo II</option>
-						  <option value="III">Anexo III</option>
-						  <option value="IV">Anexo IV</option>
-						  <option value="V">Anexo V</option>
-						</select>
-						<input type="number" step="0.01" min="0" class="flex-1 border border-emerald-200 rounded-lg p-2.5 text-sm font-medium text-emerald-800" placeholder="R$ 0,00">
-						<button type="button" class="text-red-500 hover:text-red-700 p-2">
-						  <i class="fas fa-trash-alt"></i>
-						</button>
-					  </div>
-					</div>
-					<button type="button" id="addValorAnexo" class="text-emerald-600 hover:text-emerald-800 text-sm font-medium flex items-center gap-1">
-					  <i class="fas fa-plus"></i> Detalhar por Anexo </button>		
-					<div class="md:col-span-3">
-					  <label class="block text-xs font-medium text-gray-700 mb-1">Massa Salarial (Anexo V)</label>
-					  <input type="number" id="massaSalarial" step="0.01" min="0" 
-							 class="w-full border border-purple-200 rounded-lg p-2.5 text-sm font-medium text-purple-700 placeholder-gray-400 bg-purple-50" 
-							 placeholder="R$ 0,00 (folha + pró-labore + encargos)">
-					  <p class="text-xs text-purple-600 mt-1">Preencher apenas para empresas Anexo V</p>
-					</div>
-					<div class="md:col-span-3 flex justify-end gap-3">
-						<button type="button" id="limparFaturamento" class="px-4 py-2 text-gray-500 hover:text-gray-700">Limpar</button>
-						<button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium shadow-sm">
-							<i class="fas fa-save mr-2"></i> Salvar Faturamento</button>
-					</div>
+				  </div>
+
+				  <!-- Botões -->
+				  <div class="flex gap-2 pt-2">
+					<button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-medium transition">
+					  Registrar Faturamento
+					</button>
+					<button type="button" id="limparFaturamento" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg">
+					  <i class="fas fa-broom"></i>
+					</button>
+				  </div>
 				</form>
 
 				<!-- Gráfico de Faturamento -->
@@ -291,11 +298,16 @@
 					<div class="flex justify-between items-center mb-4">
 						<h3 class="font-bold text-gray-700">Registros Recentes</h3>
 						<div class="flex gap-2">
+							<select id="filtroEmpresaFaturamento" class="border border-gray-300 rounded-lg text-sm p-1.5"></select>
+							<select id="filtroAnoFaturamento" class="border border-gray-300 rounded-lg text-sm p-1.5">
+							  <option value="">Selecione o ano</option>
+							</select>
 							<select id="filtroPeriodoFaturamento" class="border border-gray-300 rounded-lg text-sm p-1.5">
-								<option value="3">Últimos 3 meses</option>
-								<option value="6">Últimos 6 meses</option>
-								<option value="12">Últimos 12 meses</option>
-								<option value="todos">Todos</option>
+								<option value="">Ano inteiro</option>
+								<option value="1-3">Jan–Mar</option>
+								<option value="4-6">Abr–Jun</option>
+								<option value="7-9">Jul–Set</option>
+								<option value="10-12">Out–Dez</option>
 							</select>
 							<button id="atualizarFaturamento" class="text-brand-600 hover:bg-brand-50 p-1.5 rounded">
 								<i class="fas fa-sync-alt"></i>
@@ -371,92 +383,109 @@
             </div>
         </div>
 
-        <!-- ABA: SITUAÇÃO EMPRESA (CORE FEATURE) -->
-        <div id="situacaoTab" class="tab-content">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Formulário Situação -->
-                <div class="lg:col-span-1">
-                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 sticky top-24">
-                        <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2" id="tituloSituacao">
-                            <i class="fas fa-file-contract text-orange-500"></i> Registrar Situação
-                        </h2>
-                        
-                        <form id="situacaoForm" class="space-y-4">
-                            <input type="hidden" id="situacaoId">
-                            
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Empresa</label>
-                                <select id="cnpjEmpresa" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm bg-white" required>
-                                    <option value="">Selecione...</option>
-                                </select>
-                            </div>
-                            
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Data da Situação</label>
-                                <input type="date" id="dataSituacao" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required>
-                                <div id="dataSituacaoFeedback" class="text-xs mt-1"></div>
-                            </div>
+		<!-- ABA: SITUAÇÃO EMPRESA (CORE FEATURE) -->
+		<div id="situacaoTab" class="tab-content">
+			<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+				<!-- Formulário Situação -->
+				<div class="lg:col-span-1">
+					<div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 sticky top-24">
+						<h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2" id="tituloSituacao">
+							<i class="fas fa-file-contract text-orange-500"></i> Registrar Situação
+						</h2>
+						
+						<form id="situacaoForm" class="space-y-4">
+						  <input type="hidden" id="situacaoId">
+						  
+						  <!-- Empresa -->
+						  <div>
+							<label class="block text-xs font-medium text-gray-700 mb-1">Empresa</label>
+							<select id="cnpjEmpresa" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm bg-white" required>
+							  <option value="">Selecione...</option>
+							</select>
+						  </div>
+						  
+						  <!-- Data da Situação -->
+						  <div>
+							<label class="block text-xs font-medium text-gray-700 mb-1">Data da Situação</label>
+							<input type="date" id="dataSituacao" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required>
+							<div id="dataSituacaoFeedback" class="text-xs mt-1"></div>
+						  </div>
 
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Regime Tributário</label>
-                                <select id="tributacao" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm bg-white" required>
-                                    <option value="">Selecione...</option>
-                                    <option value="simples">Simples Nacional</option>
-                                    <option value="presumido">Lucro Presumido</option>
-                                    <option value="real">Lucro Real</option>
-                                </select>
-                            </div>
+						  <!-- Regime Tributário -->
+						  <div>
+							<label class="block text-xs font-medium text-gray-700 mb-1">Regime Tributário</label>
+							<select id="tributacao" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm bg-white" required>
+							  <option value="">Selecione...</option>
+							  <option value="simples">Simples Nacional</option>
+							  <option value="presumido">Lucro Presumido</option>
+							  <option value="real">Lucro Real</option>
+							</select>
+						  </div>
 
-                            <!-- Campos Simples Nacional -->
-							<div id="anexosContainer" class="space-y-3">
-							  <div class="anexo-item flex items-end gap-3 p-3 bg-gray-100 rounded-lg">
-								<select class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm bg-white" required>
-								  <option value="">Selecione Anexo</option>
-								  <option value="I">Anexo I - Comércio</option>
-								  <option value="II">Anexo II - Indústria</option>
-								  <option value="III">Anexo III - Serviços</option>
-								  <option value="IV">Anexo IV - Serviços</option>
-								  <option value="V">Anexo V - Serviços</option>
-								</select>
-								<input type="text" class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm" placeholder="Atividades">
-								<button type="button" class="text-red-500 hover:text-red-700 p-2">
-								  <i class="fas fa-trash-alt"></i>
+						  <!-- Regras de Cálculo - Simples Nacional (visível só quando tributacao = simples) -->
+						  <div id="blocoRegrasSimples" class="bg-blue-50 p-6 rounded-xl mt-2 border border-blue-100 hidden">
+							<div class="flex justify-between items-center mb-4">
+							  <h4 class="font-bold text-sm md:text-base text-blue-800 flex items-center gap-2">
+								<i class="fas fa-calculator"></i> Regras Simples Nacional
+							  </h4>
+							  <button type="button" onclick="toggleRegrasSimples()" class="text-blue-600 hover:text-blue-800 text-xs font-medium">
+								<i class="fas fa-chevron-down" id="iconRegrasSimples"></i>
+							  </button>
+							</div>
+							
+							<div id="containerRegrasSimples" class="space-y-4">
+							  <!-- Botão adicionar anexo -->
+							  <div class="flex justify-start">
+								<button type="button" onclick="adicionarAnexo()"
+										class="bg-blue-600 hover:bg-blue-700 text-white text-xs md:text-sm font-medium py-2 px-4 rounded-lg transition duration-200 flex items-center gap-2">
+								  <i class="fas fa-plus"></i> Adicionar Anexo
 								</button>
 							  </div>
+
+							  <!-- Lista de Anexos (múltiplos) -->
+							  <div id="listaAnexos" class="space-y-3">
+								<!-- Anexos serão adicionados dinamicamente por adicionarAnexo() -->
+							  </div>
 							</div>
-							<button type="button" id="addAnexo" class="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1 mt-2">
-							  <i class="fas fa-plus"></i> Adicionar Anexo
+						  </div>
+
+						  <!-- Endereço -->
+						  <div>
+							<label class="block text-xs font-medium text-gray-700 mb-1">Endereço Completo</label>
+							<textarea id="endereco" rows="3" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required></textarea>
+						  </div>
+
+						  <!-- Botões -->
+						  <div class="flex gap-2 pt-2">
+							<button type="submit"
+									class="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-2 rounded-lg font-medium transition shadow-sm btn-submit">
+							  Registrar
 							</button>
+							<button type="button" id="limparSituacao"
+									class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-medium transition">
+							  <i class="fas fa-broom"></i>
+							</button>
+						  </div>
+						</form>
+					</div>
+				</div>
 
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700 mb-1">Endereço Completo</label>
-                                <textarea id="endereco" rows="3" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm" required></textarea>
-                            </div>
-
-                            <div class="flex gap-2 pt-2">
-                                <button type="submit" class="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-2 rounded-lg font-medium transition shadow-sm btn-submit">Registrar</button>
-                                <button type="button" id="limparSituacao" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-medium transition"><i class="fas fa-broom"></i></button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- Histórico Situações -->
-                <div class="lg:col-span-2">
-                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
-                            <h3 class="font-bold text-gray-700">Histórico de Situações</h3>
-                            <div class="flex gap-2">
-                                <span class="text-xs text-gray-500 bg-white px-2 py-1 rounded border">Por Data Desc.</span>
-                            </div>
-                        </div>
-                        <div id="listaSituacoes" class="p-4 space-y-4 max-h-[700px] overflow-y-auto bg-gray-50/50">
-                            <!-- Preenchido via JS -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>        
+				<!-- Histórico Situações -->
+				<div class="lg:col-span-2">
+					<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+						<div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+							<h3 class="font-bold text-gray-700">Histórico de Situações</h3>
+							<div class="flex gap-2">
+								<span class="text-xs text-gray-500 bg-white px-2 py-1 rounded border">Por Data Desc.</span>
+							</div>
+						</div>
+						<div id="listaSituacoes" class="p-4 space-y-4 max-h-[700px] overflow-y-auto bg-gray-50/50">
+							<!-- Preenchido via JS -->
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>       
 
         <!-- ABA: CÁLCULO -->
         <div id="calculoTab" class="tab-content">
@@ -472,7 +501,7 @@
                             <label class="block text-xs font-medium text-gray-700 mb-1">Mês de Referência</label>
                             <input type="month" id="mesCalculo" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm">
                         </div>
-                        <button id="calcularImpostos" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2.5 rounded-lg font-medium shadow-sm w-full md:w-auto">
+                        <button id="btnCalcularImposto" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2.5 rounded-lg font-medium shadow-sm w-full md:w-auto">
                             Calcular
                         </button>
                     </div>
@@ -483,6 +512,73 @@
                 </div>
             </div>
         </div>
+		
+		<!-- ABA: RESUMO -->
+		<div id="resumoTab" class="tab-content">
+			<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+					<div>
+						<label class="block text-xs font-medium text-gray-700 mb-1">Empresa</label>
+						<select id="resumoEmpresa" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm">
+						<option value="">Selecione...</option>
+						</select>
+					</div>
+					<div>
+						<label class="block text-xs font-medium text-gray-700 mb-1">Ano</label>
+						<select id="resumoAno" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm">
+						<option value="">Selecione...</option>
+					</select>
+					</div>
+						<button id="btnCarregarResumo" class="bg-brand-600 hover:bg-brand-700 text-white py-2.5 rounded-lg font-medium transition">
+						<i class="fas fa-search mr-2"></i> Carregar Resumo
+						</button>
+				</div>
+			</div>
+			<!-- Tabela 1 – Dados da Empresa (4 colunas)-->
+			<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+				<h3 class="font-bold text-gray-700 mb-4">Dados da Empresa</h3>
+				<table class="w-full text-sm border border-gray-200">
+				<tbody>
+				<tr class="border-b">
+				<th class="bg-gray-50 p-2 text-left">Razão Social</th>
+				<td id="resumoRazao" class="p-2"></td>
+				<th class="bg-gray-50 p-2 text-left">CNPJ</th>
+				<td id="resumoCnpj" class="p-2"></td>
+				</tr>
+				<tr class="border-b">
+				<th class="bg-gray-50 p-2 text-left">IE</th>
+				<td id="resumoIE" class="p-2"></td>
+				<th class="bg-gray-50 p-2 text-left">CPF</th>
+				<td id="resumoCPF" class="p-2"></td>
+				</tr>
+				<tr>
+				<th class="bg-gray-50 p-2 text-left">Abertura</th>
+				<td id="resumoAbertura" class="p-2"></td>
+				<th class="bg-gray-50 p-2 text-left">Regime</th>
+				<td id="resumoRegime" class="p-2 font-semibold"></td>
+				</tr>
+				</tbody>
+				</table>
+			</div>
+			<div class="flex justify-end mb-4">
+			  <button id="btnCalcularMesesFaltantes"
+				class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+				<i class="fas fa-sync-alt mr-2"></i>
+				Calcular meses faltantes
+			  </button>
+			</div>
+			<!-- Tabela 2 – Faturamento e Impostos-->
+			<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+				<h3 class="font-bold text-gray-700 mb-4">Resumo de Faturamento e Impostos</h3>
+					<div class="overflow-x-auto">
+						<table id="tabelaResumo" class="min-w-full text-xs border border-gray-200">
+						<thead id="resumoThead" class="bg-gray-50"></thead>
+						<tbody id="resumoTbody"></tbody>
+						<tfoot id="resumoTfoot" class="bg-gray-100 font-semibold"></tfoot>
+						</table>
+					</div>
+			</div>
+		</div>
 
 		<!-- ABA: RELATÓRIOS -->
 		<div id="relatorioTab" class="tab-content">
@@ -644,16 +740,43 @@
 		</div>
 
 		<!-- ABA: PARAMETRIZAÇÃO -->
-		<div id="parametrizacaoTab" class="tab-content">
+		<div id="parametrizacaoTab" class="tab-content">			
 			<div class="bg-white rounded-xl shadow-sm border border-gray-200 min-h-[600px] flex flex-col md:flex-row overflow-hidden">
 				<!-- Sidebar Params -->
 				<div class="w-full md:w-64 bg-gray-50 border-r border-gray-200 p-4">
-					<h3 class="font-bold text-gray-700 mb-4 px-2">Regimes</h3>
-					<div class="space-y-1">
-						<button class="sub-tab-button w-full text-left px-4 py-2 rounded-lg text-sm font-medium bg-white shadow-sm text-brand-700" data-subtab="simples">Simples Nacional</button>
-						<button class="sub-tab-button w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-white" data-subtab="presumido">Lucro Presumido</button>
-						<button class="sub-tab-button w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-white" data-subtab="real">Lucro Real</button>
+				  <h3 class="font-bold text-gray-700 mb-4 px-2">Regimes</h3>
+				  <div class="space-y-1 mb-6">
+					<button class="sub-tab-button w-full text-left px-4 py-2 rounded-lg text-sm font-medium bg-white shadow-sm text-brand-700" data-subtab="simples">
+					  Simples Nacional
+					</button>
+					<button class="sub-tab-button w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-white" data-subtab="presumido">
+					  Lucro Presumido
+					</button>
+					<button class="sub-tab-button w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-white" data-subtab="real">
+					  Lucro Real
+					</button>
+				  </div>
+
+				  <!-- NOVO: Gerenciamento de Dados -->
+				  <div class="border-t border-gray-200 pt-4">
+					<h3 class="font-bold text-gray-700 mb-4 px-2 text-sm flex items-center gap-2 cursor-pointer hover:text-brand-600 transition-colors" onclick="toggleGerenciamentoDados()">
+					  <i class="fas fa-database text-brand-500"></i>Gerenciamento de Dados
+					</h3>
+					<div id="gerenciamentoDadosContainer" class="space-y-2 hidden pl-4 transition-all duration-300 ease-in-out">
+					  <button id="exportarDados" class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 transition-all flex items-center gap-2">
+						<i class="fas fa-file-export"></i>Exportar Backup
+					  </button>
+					  <button id="importarDadosBtn" class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-300 transition-all flex items-center gap-2">
+						<i class="fas fa-file-import"></i>Importar Dados
+					  </button>
+					  <button id="limparTudo" class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 transition-all flex items-center gap-2">
+						<i class="fas fa-trash-alt"></i>Limpar Tudo
+					  </button>
+					  <button class="btn-secondary w-full text-left px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2" id="resetarDados" onclick="resetarDadosClientes()">
+						<i class="fas fa-redo-alt"></i>Resetar Dados
+					  </button>
 					</div>
+				  </div>
 				</div>
 				
 				<!-- Content Params -->
@@ -1022,25 +1145,9 @@
     <!-- Toast Container -->
     <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2"></div>
 
-    <!-- Botões de Backup/Limpeza no Footer -->
-    <footer class="container mx-auto px-4 mt-8 pt-4 border-t border-gray-200 flex flex-wrap gap-3 justify-center">
-        <button id="exportarDados" class="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-             <i class="fas fa-file-export"></i> Exportar Tudo (Backup)
-        </button>
-        <button id="importarDadosBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-             <i class="fas fa-file-import"></i> Importar Dados
-        </button>
-        <button id="limparTudo" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
-             <i class="fas fa-trash-alt"></i> Limpar Tudo
-        </button>
-		<button class="btn-secondary" id="resetarDados" onclick="resetarDadosClientes()">
-			<i class="fas fa-redo-alt"></i> Resetar Dados
-		</button>
-    </footer>
-
     <!-- Input oculto para importação -->
     <input type="file" id="fileImport" class="hidden" accept=".json">
-
+	
  <script src="app.js"></script>
 </body>
 </html>

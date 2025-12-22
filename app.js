@@ -1,6 +1,4 @@
-// app.js — Versão 5.0
-
-// id="anexoContainer" excluir
+// app.js — Versão 5.1 (Atualizada com Cálculo LC 123/2006 Detalhado)
 
 "use strict";
 
@@ -23,6 +21,19 @@
 			});
 			
 			console.log('=== FIM DEBUG ===');
+		}
+		
+		function toggleGerenciamentoDados() {
+		  const container = document.getElementById('gerenciamentoDadosContainer');
+		  if (container) {
+			if (container.classList.contains('hidden')) {
+			  container.classList.remove('hidden');
+			  container.style.maxHeight = '300px'; // Animação suave
+			} else {
+			  container.style.maxHeight = '0';
+			  setTimeout(() => container.classList.add('hidden'), 300);
+			}
+		  }
 		}
 		
 		// --- 1. CONFIGURAÇÃO E UTILITÁRIOS ---        
@@ -55,6 +66,11 @@
 			if (tabId === 'faturamento') {
 				carregarFaturamento();
 				atualizarGraficoFaturamento();
+				carregarFiltroEmpresaFaturamento();
+				const filtroEmpresa = document.getElementById('filtroEmpresaFaturamento');
+				if (filtroEmpresa) {
+				  filtroEmpresa.addEventListener('change', listarFaturamento);
+				}
 			}
 			
 			// Se for a aba de relatórios, atualizar filtros
@@ -64,11 +80,13 @@
 			
 			// Se for a aba de parametrização, inicializar os listeners
 			if (tabId === 'parametrizacao') {
-				// Pequeno delay para garantir que o DOM está renderizado
-				setTimeout(() => {
-					initParametrizacaoListeners();
-				}, 50);
+			  setTimeout(() => {
+				initParametrizacaoListeners();
+				// Os botões já têm listeners globais, mas garantir visibilidade
+				document.getElementById('exportarDados')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+			  }, 100);
 			}
+
 		}
 
         // Subtabs para parametrização
@@ -250,12 +268,24 @@
 			// Calcular soma inicial
 			calcularSomaReparticao();
 		}
+		
+		function initResumo() {
+			carregarSelectEmpresasResumo();
+			carregarSelectAnoResumo();
 
+			document.getElementById('btnCarregarResumo')
+				?.addEventListener('click', carregarResumo);
+			document.getElementById('btnCalcularMesesFaltantes')
+				?.addEventListener('click', calcularMesesFaltantes);
+
+		}
+	
 		// Atualizar a função window.onload para adicionar os novos listeners
 		window.onload = function() {
 			initApp();
-			initAnexosMultiplos();
+			//initAnexosMultiplos();
 			initValoresAnexo();
+			initResumo();
 			
 			// Ocultar massa salarial inicialmente
 			const massaSalarialInput = document.getElementById('massaSalarial');
@@ -287,18 +317,52 @@
 					submitBtn.classList.add('bg-brand-600', 'hover:bg-brand-700');
 				}
 			});
-			document.getElementById('tributacao').addEventListener('change', toggleAnexo);
+			//document.getElementById('tributacao').addEventListener('change', toggleAnexo);
+			//document.getElementById('tributacao').addEventListener('change', toggleRegrasSimples);
+			document.getElementById('tributacao')?.addEventListener('change', function() {
+			  const bloco = document.getElementById('blocoRegrasSimples');
+			  if (this.value === 'simples') {
+				bloco?.classList.remove('hidden');
+				// Adicionar 1º anexo automaticamente
+				setTimeout(() => {
+				  if (!document.querySelector('.anexo-item')) {
+					adicionarAnexo();
+				  }
+				}, 100);
+			  } else {
+				bloco?.classList.add('hidden');
+			  }
+			});
 			
-			// Listener para limpar faturamento
-			document.getElementById('limparFaturamento')?.addEventListener('click', () => {
-				document.getElementById('faturamentoForm').reset();
-				delete document.getElementById('faturamentoForm').dataset.editId;
-				const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
-				if (submitBtn) {
-					submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> Salvar Faturamento';
-					submitBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
-					submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+			// Inicializar com 1 anexo padrão
+			document.addEventListener('DOMContentLoaded', function() {
+			  if (document.getElementById('listaAnexos') && !document.querySelector('.anexo-item')) {
+				adicionarAnexo();
+			  }
+			});
+			
+			document.addEventListener('input', function(e) {
+				if (e.target.classList.contains('moeda-input')) {
+					formatarMoedaInput(e.target);
+					calcularTotaisFaturamento();
 				}
+			});
+			
+			// Listener para limpar faturamento			
+			document.getElementById('limparFaturamento').addEventListener('click', function() {
+			  document.getElementById('faturamentoForm').reset();
+			  document.getElementById('faturamentoId').value = '';
+			  document.getElementById('segregacaoAnexos').classList.add('hidden');
+			  document.getElementById('camposAnexos').innerHTML = '';
+			  
+			  const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
+			  if (submitBtn) {
+				submitBtn.innerHTML = 'Registrar Faturamento';
+				submitBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+				submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+			  }
+			  
+			  delete document.getElementById('faturamentoForm').dataset.editId;
 			});
 			
 			// Listener para atualizar filtro de período do faturamento
@@ -377,6 +441,17 @@
 			// Inicializar sistema de relatórios
 			initRelatorios();
 			
+			// Inicializar botão calcular imposto
+			const btnCalcularImposto = document.getElementById('btnCalcularImposto');
+			if (btnCalcularImposto) {
+				btnCalcularImposto.addEventListener('click', function(e) {
+					e.preventDefault();
+					e.stopPropagation();
+					calcularImpostos();
+				});
+				console.log('✅ Botão Calcular Imposto inicializado no window.onload');
+			}
+			
 			// Carregar dados de parametrização
 			carregarFaixasSimples();
 			carregarConfigsPresumido();
@@ -384,12 +459,622 @@
 			
 			// Carregar a aba de faturamento por padrão
 			switchTab('faturamento');
+			
+			if (!localStorage.getItem('resultadosImpostos')) {
+				localStorage.setItem('resultadosImpostos', JSON.stringify([]));
+			}
 		};
 
-        // --- 3. CLIENTES ---
-        
-        // --- FUNÇÕES DE VALIDAÇÃO DE CNPJ ---
+		// --- RESUMOS --- //
+		// --- CARREGAR SELECTS (EMPRESA E ANO)
+		// --- Empresas
+		function carregarSelectEmpresasResumo() {
+		  const select = document.getElementById('resumoEmpresa');
+		  if (!select) return;
 
+		  const clientes = JSON.parse(localStorage.getItem('clientes')) || [];
+		  select.innerHTML = '<option value="">Selecione...</option>';
+
+		  clientes.forEach(c => {
+			const opt = document.createElement('option');
+			opt.value = c.cnpj;
+			opt.textContent = `${c.nomeFantasia} (${formatarCNPJ(c.cnpj)})`;
+			select.appendChild(opt);
+		  });
+		}
+		
+		// --- Anos (derivado do faturamento)
+		function carregarSelectAnoResumo() {
+		  const select = document.getElementById('resumoAno');
+		  if (!select) return;
+
+		  const faturamento = JSON.parse(localStorage.getItem('faturamento')) || [];
+		  const anos = [...new Set(
+			faturamento.map(f => f.mes?.substring(0, 4))
+		  )].filter(Boolean).sort((a,b)=>b-a);
+
+		  select.innerHTML = '<option value="">Selecione...</option>';
+		  anos.forEach(ano => {
+			const opt = document.createElement('option');
+			opt.value = ano;
+			opt.textContent = ano;
+			select.appendChild(opt);
+		  });
+		}
+		
+		// --- SIMPLES NACIONAL — RESUMO REAL (SEM RECÁLCULO)		
+		// --- FUNÇÃO PRINCIPAL – CARREGAR RESUMO
+		function carregarResumo() {
+		  const cnpj = document.getElementById('resumoEmpresa').value;
+		  const ano = document.getElementById('resumoAno').value;
+
+		  if (!cnpj || !ano) {
+			mostrarMensagem('Selecione empresa e ano.', 'warning');
+			return;
+		  }
+
+		  // Limpar tudo antes de renderizar
+		  limparResumo();
+
+		  // Renderizar dados da empresa (tabela 1)
+		  renderDadosEmpresa(cnpj, ano);
+
+		  // Buscar resultados do ano
+		  const resultadosAno = obterResultadosAno(cnpj, ano);
+
+		  if (!resultadosAno.length) {
+			mostrarMensagem('Nenhum mês calculado para este ano.', 'warning');
+			limparTabelaResumo();
+			return;
+		  }
+
+		  // 🔹 NOVA ARQUITETURA DE RESUMO
+		  const colunasResumo = montarTheadResumo(resultadosAno);
+		  montarTbodyResumo(cnpj, ano, resultadosAno, colunasResumo);
+		  montarTfootResumo(resultadosAno, colunasResumo);
+		}
+		
+		// --- TABELA 1 – DADOS DA EMPRESA
+		function renderDadosEmpresa(cnpj, ano) {
+		  const clientes = JSON.parse(localStorage.getItem('clientes')) || [];
+		  const situacoes = JSON.parse(localStorage.getItem('situacoes')) || [];
+
+		  const empresa = clientes.find(c => c.cnpj === cnpj);
+		  const situacaoAno = situacoes
+			.filter(s => s.cnpjEmpresa === cnpj && s.dataSituacao.startsWith(ano))
+			.sort((a,b)=> new Date(b.dataSituacao)-new Date(a.dataSituacao))[0];
+
+		  document.getElementById('resumoRazao').textContent = empresa?.razaoSocial || '';
+		  document.getElementById('resumoCnpj').textContent = formatarCNPJ(empresa?.cnpj);
+		  document.getElementById('resumoIE').textContent = empresa?.ie || '-';
+		  document.getElementById('resumoCPF').textContent = situacaoAno?.cpf || '-';
+		  document.getElementById('resumoAbertura').textContent = formatarData(empresa?.dataAbertura);
+		  document.getElementById('resumoRegime').textContent = situacaoAno?.tributacao?.toUpperCase();
+		}
+		
+		// --- SIMPLES NACIONAL – ESTRUTURA BASE
+		function renderResumoSimples(cnpj, ano, situacoes) {
+		  const thead = document.getElementById('resumoThead');
+		  const tbody = document.getElementById('resumoTbody');
+		  const tfoot = document.getElementById('resumoTfoot');
+
+		  thead.innerHTML = '';
+		  tbody.innerHTML = '';
+		  tfoot.innerHTML = '';
+
+		  // Cabeçalho base
+		  let header = `
+			<tr>
+			  <th>Mês</th>
+			  <th>Faturamento</th>
+		  `;
+
+		  const anexos = obterAnexosSimples(situacoes);
+
+		  anexos.forEach(a => {
+			header += `
+			  <th>${a.anexo} Ret.</th><th>Alq</th>
+			  <th>${a.anexo} S/Ret.</th><th>Alq</th>
+			`;
+			if (!['III','IV'].includes(a.anexo)) {
+			  header += `<th>Mono</th><th>Alq</th>`;
+			}
+		  });
+
+		  header += `<th>Total Imposto</th></tr>`;
+		  thead.innerHTML = header;
+
+		  // Corpo (1 linha por mês)
+		  const faturamento = JSON.parse(localStorage.getItem('faturamento')) || [];
+		  let totalAnoFat = 0;
+		  let totalAnoImp = 0;
+
+		  for (let m = 1; m <= 12; m++) {
+			const mes = `${ano}-${String(m).padStart(2,'0')}`;
+			const fatMes = faturamento.filter(f => f.cnpj === cnpj && f.mes === mes);
+
+			let totalMes = fatMes.reduce((s,f)=>s+Number(f.total||0),0);
+			totalAnoFat += totalMes;
+
+			let impostoMes = 0; // aqui entra seu cálculo já existente
+
+			totalAnoImp += impostoMes;
+
+			let row = `<tr><td>${m}/${ano}</td><td>${formatarMoeda(totalMes)}</td>`;
+			anexos.forEach(()=> row += `<td colspan="2">-</td><td colspan="2">-</td>`);
+			row += `<td>${formatarMoeda(impostoMes)}</td></tr>`;
+
+			tbody.innerHTML += row;
+		  }
+
+		  tfoot.innerHTML = `
+			<tr>
+			  <td>Total</td>
+			  <td>${formatarMoeda(totalAnoFat)}</td>
+			  <td colspan="${thead.querySelectorAll('th').length-3}"></td>
+			  <td>${formatarMoeda(totalAnoImp)}</td>
+			</tr>
+		  `;
+		}
+		
+		// --- LUCRO PRESUMIDO (COM RETENÇÕES)
+		function renderResumoPresumido(cnpj, ano) {
+		  const thead = document.getElementById('resumoThead');
+		  const tbody = document.getElementById('resumoTbody');
+		  const tfoot = document.getElementById('resumoTfoot');
+
+		  thead.innerHTML = `
+			<tr>
+			  <th>Mês</th><th>Faturamento</th><th>Base</th>
+			  <th>IRPJ</th><th>IRPJ Ret.</th>
+			  <th>CSLL</th><th>CSLL Ret.</th>
+			  <th>PIS</th><th>PIS Ret.</th>
+			  <th>COFINS</th><th>COFINS Ret.</th>
+			  <th>ISS</th><th>ISS Ret.</th>
+			  <th>Total</th>
+			</tr>
+		  `;
+
+		  // Corpo (1 linha por mês)
+		  const faturamento = JSON.parse(localStorage.getItem('faturamento')) || [];
+		  let totalAnoFat = 0;
+		  let totalAnoImp = 0;
+
+		  for (let m = 1; m <= 12; m++) {
+			const mes = `${ano}-${String(m).padStart(2,'0')}`;
+			const fatMes = faturamento.filter(f => f.cnpj === cnpj && f.mes === mes);
+
+			let totalMes = fatMes.reduce((s,f)=>s+Number(f.total||0),0);
+			totalAnoFat += totalMes;
+
+			let impostoMes = 0; // aqui entra seu cálculo já existente
+
+			totalAnoImp += impostoMes;
+
+			let row = `<tr><td>${m}/${ano}</td><td>${formatarMoeda(totalMes)}</td>`;
+			anexos.forEach(()=> row += `<td colspan="2">-</td><td colspan="2">-</td>`);
+			row += `<td>${formatarMoeda(impostoMes)}</td></tr>`;
+
+			tbody.innerHTML += row;
+		  }
+
+		  tfoot.innerHTML = `
+			<tr>
+			  <td>Total</td>
+			  <td>${formatarMoeda(totalAnoFat)}</td>
+			  <td colspan="${thead.querySelectorAll('th').length-3}"></td>
+			  <td>${formatarMoeda(totalAnoImp)}</td>
+			</tr>
+		  `;
+		}
+		
+		// --- LUCRO PRESUMIDO (COM RETENÇÕES)
+		function renderResumoReal(cnpj, ano) {
+		  const thead = document.getElementById('resumoThead');
+		  const tbody = document.getElementById('resumoTbody');
+		  const tfoot = document.getElementById('resumoTfoot');
+
+		  thead.innerHTML = `
+			<tr>
+			  <th>Mês</th><th>Faturamento</th><th>Base</th>
+			  <th>IRPJ</th><th>IRPJ Ret.</th>
+			  <th>CSLL</th><th>CSLL Ret.</th>
+			  <th>PIS</th><th>PIS Ret.</th>
+			  <th>COFINS</th><th>COFINS Ret.</th>
+			  <th>ISS</th><th>ISS Ret.</th>
+			  <th>Total</th>
+			</tr>
+		  `;
+
+		  // Corpo (1 linha por mês)
+		  const faturamento = JSON.parse(localStorage.getItem('faturamento')) || [];
+		  let totalAnoFat = 0;
+		  let totalAnoImp = 0;
+
+		  for (let m = 1; m <= 12; m++) {
+			const mes = `${ano}-${String(m).padStart(2,'0')}`;
+			const fatMes = faturamento.filter(f => f.cnpj === cnpj && f.mes === mes);
+
+			let totalMes = fatMes.reduce((s,f)=>s+Number(f.total||0),0);
+			totalAnoFat += totalMes;
+
+			let impostoMes = 0; // aqui entra seu cálculo já existente
+
+			totalAnoImp += impostoMes;
+
+			let row = `<tr><td>${m}/${ano}</td><td>${formatarMoeda(totalMes)}</td>`;
+			anexos.forEach(()=> row += `<td colspan="2">-</td><td colspan="2">-</td>`);
+			row += `<td>${formatarMoeda(impostoMes)}</td></tr>`;
+
+			tbody.innerHTML += row;
+		  }
+
+		  tfoot.innerHTML = `
+			<tr>
+			  <td>Total</td>
+			  <td>${formatarMoeda(totalAnoFat)}</td>
+			  <td colspan="${thead.querySelectorAll('th').length-3}"></td>
+			  <td>${formatarMoeda(totalAnoImp)}</td>
+			</tr>
+		  `;
+		}
+		
+		function limparResumo() {
+		  document.getElementById('resumoThead').innerHTML = '';
+		  document.getElementById('resumoTbody').innerHTML = '';
+		  document.getElementById('resumoTfoot').innerHTML = '';
+		}
+		
+		function obterTodosResultadosImpostos() {
+		  return JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+		}
+		
+		function obterResultadosAno(cnpj, ano) {
+		  return obterTodosResultadosImpostos()
+			.filter(r => r.cnpj === cnpj && r.mes.startsWith(ano))
+			.sort((a, b) => a.mes.localeCompare(b.mes));
+		}
+		
+		function obterResultadoMes(cnpj, mes) {
+		  return obterTodosResultadosImpostos()
+			.find(r => r.cnpj === cnpj && r.mes === mes);
+		}
+		
+		function obterMesesFaltantes(cnpj, ano) {
+			const resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+
+			const mesesCalculados = resultados
+				.filter(r => r.cnpj === cnpj && r.mes.startsWith(ano))
+				.map(r => r.mes);
+
+			const faltantes = [];
+
+			for (let m = 1; m <= 12; m++) {
+				const mes = `${ano}-${String(m).padStart(2,'0')}`;
+				if (!mesesCalculados.includes(mes)) {
+				  faltantes.push(mes);
+				}
+			}
+
+			return faltantes;
+		}
+		
+		function calcularMesesFaltantes() {
+			const cnpj = document.getElementById('resumoEmpresa').value;
+			const ano = document.getElementById('resumoAno').value;
+			const btn = document.getElementById('btnCalcularMesesFaltantes');
+
+			if (!cnpj || !ano) {
+				mostrarMensagem('Selecione empresa e ano.', 'warning');
+				return;
+			}
+
+			const meses = obterMesesFaltantes(cnpj, ano);
+
+			if (!meses.length) {
+				mostrarMensagem('Todos os meses já estão calculados.', 'info');
+				return;
+			}
+
+			if (!confirm(`Deseja calcular ${meses.length} mês(es) faltante(s)?`)) {
+				return;
+			}
+
+			// UX – BLOQUEIO E FEEDBACK
+			btn.disabled = true;
+			btn.dataset.originalText = btn.innerHTML;
+			btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Calculando...';
+
+			for (const mes of meses) {
+				calcularMesProgramaticamente(cnpj, mes);
+			}
+
+			// RESTAURA UX
+			btn.disabled = false;
+			btn.innerHTML = btn.dataset.originalText;
+
+			mostrarMensagem('Meses faltantes calculados com sucesso.', 'success');
+			carregarResumo();
+		}
+		
+		function calcularMesProgramaticamente(cnpj, mes) {
+		  // Simula os selects da aba cálculo
+		  document.getElementById('cnpjCalculo').value = cnpj;
+		  document.getElementById('mesCalculo').value = mes;
+
+		  // Chama a função existente
+		  calcularImpostos();
+		}
+		
+		function removerResultadoImposto(cnpj, mes) {
+		  const dados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+		  const filtrados = dados.filter(
+			r => !(r.cnpj === cnpj && r.mes === mes)
+		  );
+
+		  localStorage.setItem('resultadosImpostos', JSON.stringify(filtrados));
+		}
+		
+		function montarTheadResumo(resultadosAno) {
+		  const thead = document.querySelector('#tabelaResumo thead');
+		  thead.innerHTML = '';
+
+		  const colunasFixas = [
+			{ key: 'mes', label: 'Mês' },
+			{ key: 'faturamentoMes', label: 'Fat. Mês' },
+			{ key: 'rbt12', label: 'RBT12' }
+		  ];
+
+		  const colunasDinamicas = [];
+		  const colunasExtras = new Set();
+
+		  resultadosAno.forEach(r => {
+			const anexos = r.resultado?.anexos;
+			if (!anexos) return;
+
+			Object.entries(anexos).forEach(([anexo, dados]) => {
+			  // Faturamento segregado
+			  Object.keys(dados.faturamento || {}).forEach(tipo => {
+				colunasExtras.add(`${anexo}_fat_${tipo}`);
+			  });
+
+			  // Imposto segregado
+			  Object.keys(dados.imposto || {}).forEach(tipo => {
+				colunasExtras.add(`${anexo}_imp_${tipo}`);
+			  });
+
+			  // Campos exclusivos do Anexo V
+			  if (anexo === 'V') {
+				if (dados.fatorR !== undefined) colunasExtras.add('V_fatorR');
+				if (dados.salarioMes !== undefined) colunasExtras.add('V_salario');
+			  }
+			});
+		  });
+
+		  colunasExtras.forEach(key => {
+			const [anexo, tipo, sub] = key.split('_');
+
+			let label = key;
+
+			if (tipo === 'fat') {
+			  label = `${anexo} Fat. ${formatarTipo(sub)}`;
+			} else if (tipo === 'imp') {
+			  label = `${anexo} Imp. ${formatarTipo(sub)}`;
+			} else if (key === 'V_fatorR') {
+			  label = 'V Fator R %';
+			} else if (key === 'V_salario') {
+			  label = 'V Salário';
+			}
+
+			colunasDinamicas.push({ key, label });
+		  });
+
+		  const colunasFinais = [
+			...colunasFixas,
+			...colunasDinamicas,
+			{ key: 'impostoTotal', label: 'Imposto Total' }
+		  ];
+
+		  const tr = document.createElement('tr');
+		  colunasFinais.forEach(col => {
+			const th = document.createElement('th');
+			th.textContent = col.label;
+			th.className = 'px-3 py-2 text-sm text-center font-semibold';
+			tr.appendChild(th);
+		  });
+
+		  thead.appendChild(tr);
+
+		  return colunasFinais;
+		}
+		
+		// -- Função auxiliar
+		function formatarTipo(tipo) {
+		  const mapa = {
+			semRetencao: 'Sem Ret.',
+			comRetencao: 'Com Ret.',
+			st: 'ST',
+			semST: 'Sem ST',
+			monofasico: 'Mono'
+		  };
+		  return mapa[tipo] || tipo;
+		}
+		
+		function montarTbodyResumo(cnpj, ano, resultadosAno, colunasResumo) {
+		  const tbody = document.querySelector('#tabelaResumo tbody');
+		  tbody.innerHTML = '';
+
+		  resultadosAno.forEach(r => {
+			const tr = document.createElement('tr');
+
+			colunasResumo.forEach(col => {
+			  const td = document.createElement('td');
+			  td.className = 'px-3 py-2 text-sm text-right';
+
+			  let valor = '';
+
+			  switch (col.key) {
+				case 'mes':
+				  valor = formatarMesAno(r.mes);
+				  td.className = 'px-3 py-2 text-sm text-left';
+				  break;
+
+				case 'faturamentoMes':
+				  valor = formatarMoeda(r.resultado.faturamentoMes);
+				  break;
+
+				case 'rbt12':
+				  valor = formatarMoeda(r.resultado.rbt12);
+				  break;
+
+				case 'impostoTotal':
+				  valor = formatarMoeda(r.resultado.impostoTotal);
+				  td.classList.add('font-bold');
+				  break;
+
+				default:
+				  valor = obterValorColunaDinamica(r, col.key);
+				  break;
+			  }
+
+			  td.textContent = valor ?? '';
+			  tr.appendChild(td);
+			});
+
+			tbody.appendChild(tr);
+		  });
+		}
+		
+		// --- Função auxiliar (leitura segura)
+		function obterValorColunaDinamica(r, chave) {
+		  const partes = chave.split('_');
+
+		  // Ex: III_fat_semRetencao
+		  if (partes.length === 3) {
+			const [anexo, tipo, sub] = partes;
+			const bloco = r.resultado.anexos?.[anexo];
+			if (!bloco) return '';
+
+			if (tipo === 'fat') {
+			  return formatarMoeda(bloco.faturamento?.[sub] || 0);
+			}
+
+			if (tipo === 'imp') {
+			  return formatarMoeda(bloco.imposto?.[sub] || 0);
+			}
+		  }
+
+		  if (chave === 'V_fatorR') {
+			const v = r.resultado.anexos?.V?.fatorR;
+			return v !== undefined ? `${(v * 100).toFixed(2)}%` : '';
+		  }
+
+		  if (chave === 'V_salario') {
+			const v = r.resultado.anexos?.V?.salarioMes;
+			return v ? formatarMoeda(v) : '';
+		  }
+
+		  return '';
+		}
+		
+		function montarTfootResumo(resultadosAno, colunasResumo) {
+		  const tfoot = document.querySelector('#tabelaResumo tfoot');
+		  tfoot.innerHTML = '';
+
+		  if (!resultadosAno.length) return;
+
+		  const totais = {};
+
+		  // Inicializa totais
+		  colunasResumo.forEach(col => {
+			totais[col.key] = 0;
+		  });
+
+		  // Acumula valores
+		  resultadosAno.forEach(r => {
+			colunasResumo.forEach(col => {
+			  switch (col.key) {
+				case 'faturamentoMes':
+				  totais[col.key] += Number(r.resultado.faturamentoMes || 0);
+				  break;
+
+				case 'impostoTotal':
+				  totais[col.key] += Number(r.resultado.impostoTotal || 0);
+				  break;
+
+				case 'rbt12':
+				  // NÃO soma RBT12 (informativo)
+				  break;
+
+				default:
+				  // Somar apenas colunas dinâmicas numéricas
+				  const valor = obterValorNumericoColuna(r, col.key);
+				  if (typeof valor === 'number') {
+					totais[col.key] += valor;
+				  }
+				  break;
+			  }
+			});
+		  });
+
+		  // Montar linha do rodapé
+		  const tr = document.createElement('tr');
+		  tr.className = 'bg-gray-100 font-semibold';
+
+		  colunasResumo.forEach(col => {
+			const td = document.createElement('td');
+			td.className = 'px-3 py-2 text-sm text-right';
+
+			let valor = '';
+
+			if (col.key === 'mes') {
+			  valor = 'TOTAL DO ANO';
+			  td.className = 'px-3 py-2 text-sm text-left font-bold';
+			} else if (col.key === 'faturamentoMes' || col.key === 'impostoTotal') {
+			  valor = formatarMoeda(totais[col.key]);
+			  td.classList.add('font-bold');
+			} else if (totais[col.key] > 0) {
+			  valor = formatarMoeda(totais[col.key]);
+			}
+
+			td.textContent = valor;
+			tr.appendChild(td);
+		  });
+
+		  tfoot.appendChild(tr);
+		}
+		
+		function obterValorNumericoColuna(r, chave) {
+		  const partes = chave.split('_');
+
+		  // Ex: III_fat_semRetencao ou III_imp_semRetencao
+		  if (partes.length === 3) {
+			const [anexo, tipo, sub] = partes;
+			const bloco = r.resultado.anexos?.[anexo];
+			if (!bloco) return 0;
+
+			if (tipo === 'fat') {
+			  return Number(bloco.faturamento?.[sub] || 0);
+			}
+
+			if (tipo === 'imp') {
+			  return Number(bloco.imposto?.[sub] || 0);
+			}
+		  }
+
+		  // Não somar fator R (percentual)
+		  if (chave === 'V_fatorR') return null;
+
+		  // Salário (soma faz sentido)
+		  if (chave === 'V_salario') {
+			return Number(r.resultado.anexos?.V?.salarioMes || 0);
+		  }
+
+		  return null;
+		}
+
+        // --- CLIENTES ---        
+        // --- FUNÇÕES DE VALIDAÇÃO DE CNPJ ---
 		function aplicarMascaraCNPJ(cnpj) {
 			// Remove tudo que não é número
 			cnpj = cnpj.replace(/\D/g, '');
@@ -454,7 +1139,6 @@
 		}
 
 		// --- ATUALIZAÇÃO DA FUNÇÃO salvarCliente ---
-
 		function salvarCliente(e) {
 			e.preventDefault();
 			
@@ -554,7 +1238,6 @@
 		}
 
 		// --- ATUALIZAÇÃO DA FUNÇÃO carregarClientes com botão de excluir ---
-
 		function carregarClientes() {
 			try {
 				console.log('carregarClientes() chamada');
@@ -693,7 +1376,6 @@
 		}
 
 		// --- FUNÇÃO PARA EXCLUIR CLIENTE ---
-
 		function excluirCliente(cnpj) {
 			// Verificar se o cliente tem situações ou vendas associadas
 			const situacoes = JSON.parse(localStorage.getItem('situacoes')) || [];
@@ -756,7 +1438,6 @@
 		}
 
 		// --- ATUALIZAÇÃO DA FUNÇÃO editarCliente ---
-
 		function editarCliente(cnpj) {
 			const clientes = JSON.parse(localStorage.getItem('clientes'));
 			const c = clientes.find(x => x.cnpj === cnpj);
@@ -798,7 +1479,7 @@
 			}
 		}
 
-        // --- 4. SITUAÇÕES ---
+        // --- SITUAÇÕES ---
 			function toggleAnexo() {
 			const tipo = document.getElementById('tributacao').value;
 			const container = document.getElementById('anexosContainer');  // ← CORRIGIDO: plural
@@ -811,138 +1492,276 @@
 			}
 		}
 
-		// Gerenciar anexos múltiplos
-		function initAnexosMultiplos() {
-		  const container = document.getElementById('anexosContainer');
-		  const addBtn = document.getElementById('addAnexo');
+		// === GERENCIAR MÚLTIPLOS ANEXOS ===
+		let contadorAnexos = 0;
+
+		function adicionarAnexo() {
+		  contadorAnexos++;
+		  const container = document.getElementById('listaAnexos');
 		  
-		  addBtn.addEventListener('click', () => {
-			const novoItem = document.createElement('div');
-			novoItem.className = 'anexo-item flex items-end gap-3 p-3 bg-gray-100 rounded-lg';
-			novoItem.innerHTML = `
-			  <select class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm bg-white" required>
-				<option value="">Selecione Anexo</option>
-				<option value="I">Anexo I - Comércio</option>
-				<option value="II">Anexo II - Indústria</option>
-				<option value="III">Anexo III - Serviços</option>
-				<option value="IV">Anexo IV - Serviços</option>
-				<option value="V">Anexo V - Serviços</option>
-			  </select>
-			  <input type="text" class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm" placeholder="Atividades">
-			  <button type="button" class="text-red-500 hover:text-red-700 p-2">
-				<i class="fas fa-trash-alt"></i>
+		  const divAnexo = document.createElement('div');
+		  divAnexo.className = 'anexo-item bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all';
+		  divAnexo.dataset.id = `anexo_${contadorAnexos}`;
+		  
+		  divAnexo.innerHTML = `
+			<div class="flex justify-between items-start mb-4">
+			  <h5 class="font-semibold text-blue-800">Anexo ${contadorAnexos}</h5>
+			  <button type="button" onclick="removerAnexo(this)" 
+					  class="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition">
+				<i class="fas fa-times"></i>
 			  </button>
-			`;
+			</div>
 			
-			// Remover item
-			novoItem.querySelector('button').addEventListener('click', () => {
-			  if (container.children.length > 1) {
-				novoItem.remove();
-			  }
-			});
-			
-			container.appendChild(novoItem);
-		  });
+			<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			  <!-- Anexo -->
+			  <div>
+				<label class="block text-sm font-medium text-gray-700 mb-2">Anexo *</label>
+				<select class="anexo-select w-full p-3 border border-gray-200 rounded-lg required" required>
+				  <option value="">Anexo</option>
+				  <option value="I">I - Comércio</option>
+				  <option value="II">II - Indústria</option>
+				  <option value="III">III - Serviços</option>
+				  <option value="IV">IV - Serviços Regulamentados</option>
+				  <option value="V">V - Serviços (Fator R)</option>
+				</select>
+			  </div>
+			  
+			  <!-- Trata ST -->
+			  <div>
+				<label class="block text-sm font-medium text-gray-700 mb-2">Substituição Tributária</label>
+				<select class="anexo-st w-full p-3 border border-gray-200 rounded-lg">
+				  <option value="nao">Sem ST</option>
+				  <option value="sim">Com ST (ICMS excluído)</option>
+				</select>
+			  </div>
+			  
+			  <!-- Retenção -->
+			  <div>
+				<label class="block text-sm font-medium text-gray-700 mb-2">Retenção ISS</label>
+				<select class="anexo-retencao w-full p-3 border border-gray-200 rounded-lg">
+				  <option value="nao">Sem retenção</option>
+				  <option value="sim">Com retenção (ISS excluído)</option>
+				</select>
+			  </div>
+			  
+			  <!-- Monofásico -->
+			  <div>
+				<label class="block text-sm font-medium text-gray-700 mb-2">Monofásico</label>
+				<select class="anexo-monofasico w-full p-3 border border-gray-200 rounded-lg">
+				  <option value="nao">Não</option>
+				  <option value="sim">Sim (PIS/COFINS isento)</option>
+				</select>
+			  </div>
+			  
+			  <!-- Atividades -->
+			  <div class="md:col-span-2">
+				<label class="block text-sm font-medium text-gray-700 mb-2">Atividades</label>
+				<input type="text" class="anexo-atividades w-full p-3 border border-gray-200 rounded-lg" 
+					   placeholder="Ex: comércio geral, consultoria...">
+			  </div>
+			</div>
+		  `;
+		  
+		  container.appendChild(divAnexo);
 		}
 
-		function getAnexosData() {
-		  const container = document.getElementById('anexosContainer');
-		  const anexos = [];
-		  container.querySelectorAll('.anexo-item').forEach(item => {
-			const select = item.querySelector('select');
-			const input = item.querySelector('input');
-			if (select.value) {
-			  anexos.push({
-				anexo: select.value,
-				atividades: input.value.trim()
-			  });
+		function removerAnexo(botao) {
+			if (document.querySelectorAll('.anexo-item').length === 1) {
+			mostrarMensagem('Mantenha pelo menos 1 anexo!', 'warning');
+			return;
 			}
-		  });
-		  return anexos;
+		  botao.closest('.anexo-item').remove();
+		  renumerarAnexos();
 		}
 
+		function renumerarAnexos() {
+		  document.querySelectorAll('.anexo-item').forEach((item, index) => {
+			item.querySelector('h5').textContent = `Anexo ${index + 1}`;
+		  });
+		}
+
+		// === CARREGAR ANEXOS NA EDIÇÃO ===
+		function carregarAnexosSituacao(situacao) {
+			const container = document.getElementById('listaAnexos');
+			if (!container) {
+				console.warn('Container listaAnexos não encontrado');
+				return;
+			}
+			
+			// Limpar anexos existentes
+			container.innerHTML = '';
+			contadorAnexos = 0;
+			
+			// Se não tem anexos, criar 1 vazio
+			const anexos = situacao.regrasSimples?.anexos || [];
+			if (anexos.length === 0) {
+				adicionarAnexo();
+				return;
+			}
+			
+			// ✅ CARREGAR CADA ANEXO com suas configurações
+			anexos.forEach((anexoData, index) => {
+				adicionarAnexo();
+				const ultimoItem = container.querySelector('.anexo-item:last-child');
+				
+				if (ultimoItem) {
+					ultimoItem.querySelector('.anexo-select').value = anexoData.anexo || '';
+					ultimoItem.querySelector('.anexo-st').value = anexoData.trataST ? 'sim' : 'nao';
+					ultimoItem.querySelector('.anexo-retencao').value = anexoData.trataRetencao ? 'sim' : 'nao';
+					ultimoItem.querySelector('.anexo-monofasico').value = anexoData.monofasico ? 'sim' : 'nao';
+					ultimoItem.querySelector('.anexo-atividades').value = anexoData.atividades || '';
+				}
+			});
+		}
+
+		function adicionarAnexoCarregado(anexo) {
+		  adicionarAnexo();
+		  const ultimoItem = document.querySelector('.anexo-item:last-child');
+		  ultimoItem.querySelector('.anexo-select').value = anexo.anexo || '';
+		  ultimoItem.querySelector('.anexo-percentual').value = anexo.percentual || 100;
+		  ultimoItem.querySelector('.anexo-atividades').value = anexo.atividades || '';
+		}
+		
         function salvarSituacao(e) {
-            e.preventDefault();
-            
-            const id = document.getElementById('situacaoId').value;
-            const cnpjEmpresa = document.getElementById('cnpjEmpresa').value;
-            const dataSituacao = document.getElementById('dataSituacao').value;
-            const tributacao = document.getElementById('tributacao').value;
-            const endereco = document.getElementById('endereco').value;
-            
-            const clientes = JSON.parse(localStorage.getItem('clientes'));
-            const empresa = clientes.find(c => c.cnpj === cnpjEmpresa);
-            
-            if (!empresa) { mostrarMensagem("Empresa inválida. Atualize a página se necessário.", 'error'); return; }
-            
-            // Validação Data Abertura
-            if (dataSituacao < empresa.dataAbertura) {
-                mostrarModalConfirmacao("Data Inválida", 
-                    `A situação (${formatarData(dataSituacao)}) não pode ser anterior à abertura da empresa (${formatarData(empresa.dataAbertura)}).`, 
-                    null, true 
-                );
-                return;
-            }
+			e.preventDefault();
+			
+			const id = document.getElementById('situacaoId').value;
+			const cnpjEmpresa = document.getElementById('cnpjEmpresa').value;
+			const dataSituacao = document.getElementById('dataSituacao').value;
+			const tributacao = document.getElementById('tributacao').value;
+			const endereco = document.getElementById('endereco').value;
+			
+			const clientes = JSON.parse(localStorage.getItem('clientes'));
+			const empresa = clientes.find(c => c.cnpj === cnpjEmpresa);
+			
+			if (!empresa) { 
+				mostrarMensagem("Empresa inválida. Atualize a página se necessário.", 'error'); 
+				return; 
+			}
+			
+			// Validação Data Abertura
+			if (dataSituacao < empresa.dataAbertura) {
+				mostrarModalConfirmacao("Data Inválida", 
+					`A situação (${formatarData(dataSituacao)}) não pode ser anterior à abertura da empresa (${formatarData(empresa.dataAbertura)}).`, 
+					null, true 
+				);
+				return;
+			}
 
-            let situacoes = JSON.parse(localStorage.getItem('situacoes'));
+			let situacoes = JSON.parse(localStorage.getItem('situacoes'));
 
-            // Verificação de Duplicidade Inteligente
-            const conflito = situacoes.find(s => 
-                s.cnpjEmpresa === cnpjEmpresa && 
-                s.dataSituacao === dataSituacao &&
-                s.id !== id 
-            );
+			// Verificação de Duplicidade Inteligente
+			const conflito = situacoes.find(s => 
+				s.cnpjEmpresa === cnpjEmpresa && 
+				s.dataSituacao === dataSituacao &&
+				s.id !== id 
+			);
 
-            if (conflito) {
-                mostrarModalConfirmacao("Conflito de Data", 
-                    `Já existe uma situação em ${formatarData(dataSituacao)}. Deseja sobrescrever os dados existentes e apagar o registro em edição/criação?`, 
-                    () => {
-                        // Ação de Sobrescrita (Merge)
-                        const dadosNovos = {
-                             cnpjEmpresa,
-                             dataSituacao,
-                             tributacao,
-                             endereco,
-                             anexos: tributacao === 'simples' ? getAnexosData() : [],                             
-                        };
-                        
-                        // Atualiza o registro conflitante com os dados do formulário
-                        Object.assign(conflito, dadosNovos);
-                        
-                        // Remove o registro que estávamos editando/criando (se for diferente)
-                        if (id && id !== conflito.id) {
-                            situacoes = situacoes.filter(s => s.id !== id);
-                        }
-                        
-                        // Garante que a lista principal está atualizada (importante se houve filtragem)
-                        const index = situacoes.findIndex(s => s.id === conflito.id);
-                        if(index !== -1) situacoes[index] = conflito;
-                        
-                        finalizarSalvamentoSituacao(situacoes);
-                    }
-                );
-                return;
-            }
-            
-            // Sem conflito ou em edição
-            const novaSituacao = {
-                id: id || Date.now().toString(),
-                cnpjEmpresa,
-                dataSituacao,
-                tributacao,
-                endereco,
-                anexos: tributacao === 'simples' ? getAnexosData() : [],                
-            };
+			if (conflito) {
+				mostrarModalConfirmacao("Conflito de Data", 
+					`Já existe uma situação em ${formatarData(dataSituacao)}. Deseja sobrescrever os dados existentes e apagar o registro em edição/criação?`, 
+					() => {
+						// Ação de Sobrescrita (Merge) - ATUALIZADO
+						const dadosNovos = {
+							cnpjEmpresa,
+							dataSituacao,
+							tributacao,
+							endereco,
+							anexos: tributacao === 'simples' ? getAnexosData() : [],
+							regrasSimples: capturarRegrasSimples()  // ✅ NOVO
+						};
+						
+						// Atualiza o registro conflitante com os dados do formulário
+						Object.assign(conflito, dadosNovos);
+						
+						// Remove o registro que estávamos editando/criando (se for diferente)
+						if (id && id !== conflito.id) {
+							situacoes = situacoes.filter(s => s.id !== id);
+						}
+						
+						// Garante que a lista principal está atualizada (importante se houve filtragem)
+						const index = situacoes.findIndex(s => s.id === conflito.id);
+						if(index !== -1) situacoes[index] = conflito;
+						
+						finalizarSalvamentoSituacao(situacoes);
+					}
+				);
+				return;
+			}
+			
+			// Sem conflito ou em edição - ATUALIZADO
+			const novaSituacao = {
+				id: id || Date.now().toString(),
+				cnpjEmpresa,
+				dataSituacao,
+				tributacao,
+				endereco,
+				anexos: tributacao === 'simples' ? getAnexosData() : [],
+				regrasSimples: capturarRegrasSimples()  // ✅ NOVO - Captura múltiplos anexos + regras
+			};
 
-            if (id) {
-                const idx = situacoes.findIndex(s => s.id === id);
-                if (idx !== -1) situacoes[idx] = novaSituacao;
-            } else {
-                situacoes.push(novaSituacao);
-            }
-            
-            finalizarSalvamentoSituacao(situacoes);
-        }
+			if (id) {
+				const idx = situacoes.findIndex(s => s.id === id);
+				if (idx !== -1) situacoes[idx] = novaSituacao;
+			} else {
+				situacoes.push(novaSituacao);
+			}
+			
+			finalizarSalvamentoSituacao(situacoes);
+		}
+		
+		function toggleRegrasSimples() {
+		  const bloco = document.getElementById('blocoRegrasSimples');
+		  const container = document.getElementById('containerRegrasSimples');
+		  const icon = document.getElementById('iconRegrasSimples');
+		  
+		  if (container.classList.contains('hidden')) {
+			container.classList.remove('hidden');
+			icon.className = 'fas fa-chevron-down';
+		  } else {
+			container.classList.add('hidden');
+			icon.className = 'fas fa-chevron-up';
+		  }
+		}
+
+
+		// === FUNÇÃO AUXILIAR NOVA - Captura Regras Simples Completo ===
+		function capturarRegrasSimples() {
+		  // Capturar TODOS os anexos com suas configurações individuais
+		  const anexos = Array.from(document.querySelectorAll('.anexo-item')).map(item => ({
+			anexo: item.querySelector('.anexo-select').value,
+			trataST: item.querySelector('.anexo-st').value === 'sim',
+			trataRetencao: item.querySelector('.anexo-retencao').value === 'sim',
+			monofasico: item.querySelector('.anexo-monofasico').value === 'sim',
+			atividades: item.querySelector('.anexo-atividades').value.trim()
+		  })).filter(a => a.anexo); // Só anexos válidos
+		  
+		  return {
+			anexos,  // Array com configurações individuais por anexo
+			dataCaptura: new Date().toISOString()
+		  };
+		}
+
+		// === ATUALIZAR getAnexosData (se ainda existir para compatibilidade) ===
+		function getAnexosData() {
+			// Mantém compatibilidade com código antigo, mas prioriza novo sistema
+			if (document.querySelector('.anexo-item')) {
+				return Array.from(document.querySelectorAll('.anexo-item')).map(item => ({
+					anexo: item.querySelector('.anexo-select')?.value || '',
+					atividades: item.querySelector('.anexo-atividades')?.value?.trim() || ''
+				})).filter(a => a.anexo);
+			}
+			
+			// Fallback para sistema antigo (se ainda existir)
+			const container = document.getElementById('anexosContainer');
+			if (!container) return [];
+			
+			return Array.from(container.querySelectorAll('.anexo-item')).map(item => ({
+				anexo: item.querySelector('select')?.value || '',
+				atividades: item.querySelector('input')?.value?.trim() || ''
+			})).filter(a => a.anexo);
+		}
+
 
         function finalizarSalvamentoSituacao(listaAtualizada) {
             localStorage.setItem('situacoes', JSON.stringify(listaAtualizada));
@@ -952,19 +1771,25 @@
         }
 
         function limparFormSituacao() {
-            document.getElementById('situacaoForm').reset();
-            document.getElementById('situacaoId').value = '';
-            const anexosContainer = document.getElementById('anexosContainer');
-				if (anexosContainer) anexosContainer.classList.add('hidden');
-
-            
-            // UI Reset
-            const title = document.getElementById('tituloSituacao');
-            title.innerHTML = '<i class="fas fa-file-contract text-orange-500"></i> Registrar Situação';
-            document.querySelector('.btn-submit').innerText = "Registrar";
-            document.querySelector('.btn-submit').classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
-            document.querySelector('.btn-submit').classList.add('bg-orange-600', 'hover:bg-orange-700');
-        }
+			document.getElementById('situacaoForm').reset();
+			document.getElementById('situacaoId').value = '';
+			
+			// Ocultar bloco simples
+			document.getElementById('blocoRegrasSimples')?.classList.add('hidden');
+			document.getElementById('containerRegrasSimples')?.classList.add('hidden');
+			
+			// Limpar anexos
+			document.getElementById('listaAnexos').innerHTML = '';
+			contadorAnexos = 0;
+			
+			// Botão volta para "Registrar"
+			const btnSubmit = document.querySelector('#situacaoForm button[type="submit"]');
+			if (btnSubmit) {
+				btnSubmit.textContent = 'Registrar';
+				btnSubmit.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+				btnSubmit.classList.add('bg-orange-600', 'hover:bg-orange-700');
+			}
+		}
 
         function carregarSituacoes() {
             const situacoes = JSON.parse(localStorage.getItem('situacoes')) || [];
@@ -1018,99 +1843,47 @@
                 lista.appendChild(card);
             });
         }
-		
-		function createAnexoItem() {
-			const div = document.createElement('div');
-			div.className = 'anexo-item flex items-end gap-3 p-3 bg-gray-100 rounded-lg';
-			div.innerHTML = `
-				<select class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm bg-white" required>
-					<option value="">Selecione Anexo</option>
-					<option value="I">Anexo I - Comércio</option>
-					<option value="II">Anexo II - Indústria</option>
-					<option value="III">Anexo III - Serviços</option>
-					<option value="IV">Anexo IV - Serviços</option>
-					<option value="V">Anexo V - Serviços</option>
-				</select>
-				<input type="text" class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm" placeholder="Atividades">
-				<button type="button" class="text-red-500 hover:text-red-700 p-2">
-					<i class="fas fa-trash-alt"></i>
-				</button>
-			`;
-			
-			div.querySelector('button').addEventListener('click', () => {
-				const container = document.getElementById('anexosContainer');
-				if(container.children.length > 1) {
-					div.remove();
-				}
-			});
-			
-			return div;
-		}
 
         function editarSituacao(id) {
-            const situacoes = JSON.parse(localStorage.getItem('situacoes'));
-            const s = situacoes.find(x => x.id === id);
-            if(!s) return;
-            
-            document.getElementById('situacaoId').value = s.id;
-            document.getElementById('cnpjEmpresa').value = s.cnpjEmpresa;
-            document.getElementById('dataSituacao').value = s.dataSituacao;
-            document.getElementById('tributacao').value = s.tributacao;
-            document.getElementById('endereco').value = s.endereco;
-            
-            toggleAnexo(); 
-			if(s.tributacao === 'simples') {
-				// Limpar container atual
-				const container = document.getElementById('anexosContainer');
-				container.innerHTML = '';
-				
-				// Carregar múltiplos anexos
-				if(s.anexos && Array.isArray(s.anexos) && s.anexos.length > 0) {
-					s.anexos.forEach(anexo => {
-						const novoItem = document.createElement('div');
-						novoItem.className = 'anexo-item flex items-end gap-3 p-3 bg-gray-100 rounded-lg';
-						novoItem.innerHTML = `
-							<select class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm bg-white" required>
-								<option value="">Selecione Anexo</option>
-								<option value="I">Anexo I - Comércio</option>
-								<option value="II">Anexo II - Indústria</option>
-								<option value="III">Anexo III - Serviços</option>
-								<option value="IV">Anexo IV - Serviços</option>
-								<option value="V">Anexo V - Serviços</option>
-							</select>
-							<input type="text" class="flex-1 border border-blue-200 rounded-lg p-2.5 text-sm" placeholder="Atividades" value="${anexo.atividades || ''}">
-							<button type="button" class="text-red-500 hover:text-red-700 p-2">
-								<i class="fas fa-trash-alt"></i>
-							</button>
-						`;
-						novoItem.querySelector('select').value = anexo.anexo;
-						
-						// Evento remover
-						novoItem.querySelector('button').addEventListener('click', () => {
-							if(container.children.length > 1) {
-								novoItem.remove();
-							}
-						});
-						
-						container.appendChild(novoItem);
-					});
-				} else {
-					// Criar um item vazio se não houver anexos
-					const itemVazio = createAnexoItem();
-					container.appendChild(itemVazio);
-				}
+			const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
+			const situacao = situacoes.find(s => s.id === id);
+			
+			if (!situacao) {
+				mostrarMensagem('Situação não encontrada!', 'error');
+				return;
 			}
-            
-            // Visual Update
-            const title = document.getElementById('tituloSituacao');
-            title.innerHTML = '<i class="fas fa-edit text-yellow-600"></i> Editando Situação';
-            const btn = document.querySelector('.btn-submit');
-            btn.innerText = "Salvar Alterações";
-            btn.classList.remove('bg-orange-600', 'hover:bg-orange-700');
-            btn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
-            
-            document.getElementById('situacaoForm').scrollIntoView({behavior: 'smooth'});
-        }
+			
+			// Preencher campos básicos
+			document.getElementById('situacaoId').value = situacao.id;
+			document.getElementById('cnpjEmpresa').value = situacao.cnpjEmpresa;
+			document.getElementById('dataSituacao').value = situacao.dataSituacao;
+			document.getElementById('tributacao').value = situacao.tributacao;
+			document.getElementById('endereco').value = situacao.endereco || '';
+			
+			// ✅ MOSTRAR BLOCO SIMPLES se for Simples Nacional
+			if (situacao.tributacao === 'simples') {
+				const bloco = document.getElementById('blocoRegrasSimples');
+				if (bloco) {
+					bloco.classList.remove('hidden');
+				}
+				
+				// ✅ CARREGAR ANEXOS (NOVO SISTEMA)
+				setTimeout(() => {
+					carregarAnexosSituacao(situacao);
+				}, 200);
+			}
+			
+			// Mudar botão para "Atualizar"
+			const btnSubmit = document.querySelector('#situacaoForm button[type="submit"]');
+			if (btnSubmit) {
+				btnSubmit.textContent = 'Atualizar';
+				btnSubmit.classList.remove('bg-orange-600', 'hover:bg-orange-700');
+				btnSubmit.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+			}
+			
+			// Scroll suave para o form
+			document.getElementById('situacaoForm').scrollIntoView({ behavior: 'smooth' });
+		}
         
         function deletarSituacao(id) {
              mostrarModalConfirmacao("Excluir Registro", "Deseja excluir permanentemente este registro de situação?", () => {
@@ -1122,32 +1895,6 @@
              });
         }
 
-        // --- 5. VENDAS ---
-        // Função para salvar faturamento (antiga salvarVendas)
-	//	function salvarFaturamento(e) {
-	//		e.preventDefault();			
-	//		const cnpj = document.getElementById('cnpjFaturamento').value;
-	//		const mes = document.getElementById('mesFaturamento').value;
-	//		const valor = parseFloat(document.getElementById('valorFaturamento').value);
-			
-	//		if (isNaN(valor) || valor < 0) {
-	//			mostrarMensagem("Valor do faturamento inválido.", 'error');
-	//			return;
-	//		}
-
-	//		let faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
-			
-			// Remove existente do mesmo mês para sobrescrever
-	//		faturamentos = faturamentos.filter(v => !(v.cnpj === cnpj && v.mes === mes));
-			
-	//		faturamentos.push({ id: Date.now().toString(), cnpj, mes, valor, valoresAnexo: getValoresAnexoData(), });
-	//		localStorage.setItem('faturamento', JSON.stringify(faturamentos));
-	//		document.getElementById('faturamentoForm').reset();
-	//		carregarFaturamento();
-	//		atualizarGraficoFaturamento();
-	//		mostrarMensagem("Faturamento registrado!");
-	//	}
-		
 		function initValoresAnexo() {
 		  const empresaSelect = document.getElementById('cnpjFaturamento');
 		  const detalharBtn = document.getElementById('addValorAnexo');
@@ -1166,7 +1913,6 @@
 				container.innerHTML = ''; // Limpar itens
 			  }
 			});
-
 		  
 		  detalharBtn.addEventListener('click', () => {
 			container.classList.remove('hidden');
@@ -1244,101 +1990,381 @@
 
 		  return ultimaSituacao && Array.isArray(ultimaSituacao.anexos) && ultimaSituacao.anexos.length > 1;
 		}
+		
+		function listarFaturamento() {
+		  const empresa = document.getElementById('filtroEmpresaFaturamento').value;
+		  const ano = document.getElementById('filtroAnoFaturamento').value;
+		  const periodo = document.getElementById('filtroPeriodoFaturamento').value;
 
+		  let faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
 
-		// Função para carregar faturamento (antiga carregarVendas)
+		  // 1️⃣ Filtrar por empresa
+		  if (empresa) {
+			faturamentos = faturamentos.filter(f => f.cnpj === empresa);
+		  }
+
+		  // 2️⃣ Filtrar por ano
+		  if (ano) {
+			faturamentos = faturamentos.filter(f => f.mes.startsWith(ano));
+		  }
+
+		  // 3️⃣ Filtrar por período (se existir)
+		  if (periodo) {
+			const [inicio, fim] = periodo.split('-').map(Number);
+			faturamentos = faturamentos.filter(f => {
+			  const mesNum = Number(f.mes.split('-')[1]);
+			  return mesNum >= inicio && mesNum <= fim;
+			});
+		  }
+
+		  // 4️⃣ Ordenar (mais recente primeiro)
+		  faturamentos.sort((a, b) => b.mes.localeCompare(a.mes));
+
+		  renderizarListaFaturamento(faturamentos);
+		}
+		
+		function renderizarListaFaturamento(lista) {
+		  const container = document.getElementById('listaFaturamento');
+		  if (!container) return;
+
+		  if (!lista.length) {
+			container.innerHTML = `
+			  <div class="p-4 text-center text-gray-500">
+				Nenhum faturamento encontrado para os filtros selecionados.
+			  </div>
+			`;
+			return;
+		  }
+
+		  let html = `
+			<table class="min-w-full border border-gray-200 rounded-lg text-sm">
+			  <thead class="bg-gray-100">
+				<tr>
+				  <th class="px-3 py-2 text-left">Empresa</th>
+				  <th class="px-3 py-2 text-left">Mês</th>
+				  <th class="px-3 py-2 text-right">Faturamento</th>
+				  <th class="px-3 py-2 text-right">Massa Salarial</th>
+				  <th class="px-3 py-2 text-center">Ações</th>
+				</tr>
+			  </thead>
+			  <tbody>
+		  `;
+
+		  lista.forEach(f => {
+			html += `
+			  <tr class="border-t hover:bg-gray-50">
+				<td class="px-3 py-2">
+				  ${obterRazaoSocialPorCNPJ(f.cnpj) || f.cnpj}
+				</td>
+				<td class="px-3 py-2">
+				  ${formatarMesAno(f.mes)}
+				</td>
+				<td class="px-3 py-2 text-right font-medium">
+				  ${formatarMoeda(f.valor)}
+				</td>
+				<td class="px-3 py-2 text-right">
+				  ${formatarMoeda(f.massaSalarial || 0)}
+				</td>
+				<td class="px-3 py-2 text-center space-x-2">
+				  <button
+					class="text-blue-600 hover:underline"
+					onclick="editarFaturamento('${f.id}')">
+					Editar
+				  </button>
+				  <button
+					class="text-red-600 hover:underline"
+					onclick="excluirFaturamento('${f.id}')">
+					Excluir
+				  </button>
+				</td>
+			  </tr>
+			`;
+		  });
+
+		  html += `
+			  </tbody>
+			</table>
+		  `;
+
+		  container.innerHTML = html;
+		}
+		
+		function obterRazaoSocialPorCNPJ(cnpj) {
+			const empresas = JSON.parse(localStorage.getItem('clientes')) || [];
+			const emp = empresas.find(e => e.cnpj === cnpj);
+			return emp?.razaoSocial || '';
+		}
+		
+		function carregarFiltroEmpresaFaturamento() {
+		  const select = document.getElementById('filtroEmpresaFaturamento');
+		  if (!select) return;
+
+		  const empresas = JSON.parse(localStorage.getItem('clientes')) || [];
+
+		  select.innerHTML = '<option value="">Selecione a empresa</option>';
+
+		  if (!empresas.length) {
+			console.warn('Nenhuma empresa encontrada no localStorage');
+			return;
+		  }
+
+		  empresas.forEach(emp => {
+			const opt = document.createElement('option');
+			opt.value = emp.cnpj;
+			opt.textContent = emp.razaoSocial || emp.nome || emp.cnpj;
+			select.appendChild(opt);
+		  });
+		}
+
+		// Função para carregar faturamento - NOVO SISTEMA
 		function carregarFaturamento() {
-			const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
-			const clientes = JSON.parse(localStorage.getItem('clientes')) || [];
-			const lista = document.getElementById('listaFaturamento');
-			const filtroPeriodo = document.getElementById('filtroPeriodoFaturamento')?.value || '3';
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
+		  const clientes = JSON.parse(localStorage.getItem('clientes')) || [];
+		  const lista = document.getElementById('listaFaturamento');
+		  const filtroPeriodo = document.getElementById('filtroPeriodoFaturamento')?.value || '3';
+		  
+		  lista.innerHTML = '';
+		  
+		  // Filtrar por período
+		  let faturamentosFiltrados = [...faturamentos];
+		  if (filtroPeriodo !== 'todos') {
+			const meses = parseInt(filtroPeriodo);
+			const dataLimite = new Date();
+			dataLimite.setMonth(dataLimite.getMonth() - meses);
 			
-			lista.innerHTML = '';
+			faturamentosFiltrados = faturamentosFiltrados.filter(f => {
+			  const dataFaturamento = new Date(f.mes + '-01');
+			  return dataFaturamento >= dataLimite;
+			});
+		  }
+		  
+		  // Ordena por data (mês)
+		  faturamentosFiltrados.sort((a, b) => new Date(b.mes + '-01') - new Date(a.mes + '-01'));
+
+		  if (faturamentosFiltrados.length === 0) {
+			lista.innerHTML = '<div class="text-center p-4 text-gray-400">Nenhum registro de faturamento encontrado.</div>';
+			return;
+		  }
+		  
+		  faturamentosFiltrados.forEach(f => {
+			const emp = clientes.find(c => c.cnpj === f.cnpj);
+			if(!emp) return;
 			
-			// Filtrar por período
-			let faturamentosFiltrados = [...faturamentos];
-			if (filtroPeriodo !== 'todos') {
-				const meses = parseInt(filtroPeriodo);
-				const dataLimite = new Date();
-				dataLimite.setMonth(dataLimite.getMonth() - meses);
-				
-				faturamentosFiltrados = faturamentosFiltrados.filter(f => {
-					const dataFaturamento = new Date(f.mes + '-01');
-					return dataFaturamento >= dataLimite;
-				});
+			// Formatar mês para exibição
+			const [ano, mes] = f.mes.split('-');
+			const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+			const mesFormatado = `${meses[parseInt(mes) - 1]}/${ano}`;
+			
+			// Calcular variação em relação ao mês anterior
+			let variacao = null;
+			const mesAnterior = getMesAnterior(f.mes);
+			const faturamentoAnterior = faturamentos.find(fa => fa.cnpj === f.cnpj && fa.mes === mesAnterior);
+			
+			if (faturamentoAnterior) {
+			  const variacaoPercentual = ((f.valor - faturamentoAnterior.valor) / faturamentoAnterior.valor) * 100;
+			  variacao = variacaoPercentual.toFixed(1);
 			}
 			
-			// Ordena por data (mês)
-			faturamentosFiltrados.sort((a, b) => new Date(b.mes + '-01') - new Date(a.mes + '-01'));
-
-			if (faturamentosFiltrados.length === 0) {
-				lista.innerHTML = '<div class="text-center p-4 text-gray-400">Nenhum registro de faturamento encontrado.</div>';
+			// ✅ RESUMO DA SEGREGAÇÃO POR ANEXO (NOVO)
+			let resumoAnexos = '';
+			if (f.segregacao) {
+			  Object.entries(f.segregacao).forEach(([anexo, tipos]) => {
+				const valores = Object.entries(tipos)
+				  .filter(([_, valor]) => valor > 0)
+				  .map(([tipo, valor]) => formatarMoeda(valor))
+				  .join(' + ');
+				
+				if (valores) {
+				  resumoAnexos += `
+					<span class="inline-block bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded-full mr-1 mb-1">
+					  ${anexo}: ${valores}
+					</span>
+				  `;
+				}
+			  });
+			}
+			
+			const div = document.createElement('div');
+			div.className = "bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col hover:shadow-md transition";
+			div.innerHTML = `
+			  <div class="flex justify-between items-start mb-2">
+				<div>
+				  <h4 class="font-bold text-gray-800 truncate">${emp.nomeFantasia}</h4>
+				  <p class="text-sm text-gray-500">${mesFormatado}</p>
+				</div>
+				<div class="text-right">
+				  <p class="text-xl font-bold text-green-600">${formatarMoeda(f.valor)}</p>
+				  ${variacao !== null ? `
+					<p class="text-xs ${parseFloat(variacao) >= 0 ? 'text-green-500' : 'text-red-500'}">
+					  ${parseFloat(variacao) >= 0 ? '↗' : '↘'} ${Math.abs(parseFloat(variacao))}%
+					</p>
+				  ` : ''}
+				</div>
+			  </div>
+			  
+			  <!-- ✅ NOVA SEÇÃO: Segregação por Anexo -->
+			  ${resumoAnexos ? `
+				<div class="mt-2 pt-2 border-t border-gray-100">
+				  <span class="text-xs text-gray-500 block mb-2">Segregação por Anexo:</span>
+				  <div class="flex flex-wrap gap-1 max-h-12 overflow-y-auto">
+					${resumoAnexos}
+				  </div>
+				</div>
+			  ` : ''}
+			  
+			  <!-- ✅ DETALHAMENTO COMPLETO (hover ou clique - opcional) -->
+			  <div class="mt-3 p-3 bg-gray-50 border border-gray-100 rounded-lg hidden detalhamento-completo">
+				<div class="text-xs space-y-1">
+				  ${f.segregacao ? Object.entries(f.segregacao).map(([anexo, tipos]) => `
+					<div><strong>Anexo ${anexo}:</strong></div>
+					${Object.entries(tipos).map(([tipo, valor]) => 
+					  valor > 0 ? `<div>• ${tipo.replace(/([A-Z])/g, ' $1').trim()}: ${formatarMoeda(valor)}</div>` : ''
+					).join('')}
+				  `).join('') : '<div>Sem segregação detalhada</div>'}
+				</div>
+			  </div>
+			  
+			  <div class="flex justify-between items-center mt-3 pt-2 border-t border-gray-100">
+				<span class="text-xs text-gray-500">
+				  CNPJ: ${formatarCNPJ(f.cnpj)} | 
+				  ${f.dataRegistro ? `Reg: ${formatarDataCompleta(new Date(f.dataRegistro))}` : ''}
+				</span>
+				<div class="flex gap-1">
+				  <button onclick="editarFaturamento('${f.id}')" 
+						  class="text-brand-600 hover:bg-brand-50 p-1.5 rounded text-sm flex items-center gap-1">
+					<i class="fas fa-edit"></i> Editar
+				  </button>
+				  <button onclick="mostrarDetalhamento('${f.id}')" 
+						  class="text-gray-500 hover:text-gray-700 p-1 rounded text-sm detalhamento-toggle">
+					<i class="fas fa-eye"></i>
+				  </button>
+					<button onclick="confirmarExcluirFaturamento('${f.id}')" 
+						class="text-red-500 hover:bg-red-50 p-1.5 rounded text-sm flex items-center gap-1 hover:text-red-700 transition">
+						 <i class="fas fa-trash-alt"></i> Excluir
+					</button>
+				</div>
+			  </div>
+			`;
+			
+			lista.appendChild(div);
+		  });
+		}
+		
+		// Função auxiliar para formatar input de moeda
+		function formatarMoedaInput(input) {
+			let valor = input.value.replace(/[^\d]/g, '');
+			
+			if (valor.length === 0) {
+				input.value = '';
 				return;
 			}
 			
-			faturamentosFiltrados.forEach(f => {
-				const emp = clientes.find(c => c.cnpj === f.cnpj);
-				if(!emp) return;
-				
-				// Formatar mês para exibição
-				const [ano, mes] = f.mes.split('-');
-				const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-				const mesFormatado = `${meses[parseInt(mes) - 1]}/${ano}`;
-				
-				// Calcular variação em relação ao mês anterior
-				let variacao = null;
-				const mesAnterior = getMesAnterior(f.mes);
-				const faturamentoAnterior = faturamentos.find(fa => fa.cnpj === f.cnpj && fa.mes === mesAnterior);
-				
-				if (faturamentoAnterior) {
-					const variacaoPercentual = ((f.valor - faturamentoAnterior.valor) / faturamentoAnterior.valor) * 100;
-					variacao = variacaoPercentual.toFixed(1);
-				}
-				
-				const div = document.createElement('div');
-				div.className = "bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col hover:shadow-md transition";
-				div.innerHTML = `
-					<div class="flex justify-between items-start mb-2">
-						<div>
-							<h4 class="font-bold text-gray-800 truncate">${emp.nomeFantasia}</h4>
-							<p class="text-sm text-gray-500">${mesFormatado}</p>
-						</div>
-						<div class="text-right">
-							<p class="text-xl font-bold text-green-600">${formatarMoeda(f.valor)}</p>
-							${variacao !== null ? `
-								<p class="text-xs ${parseFloat(variacao) >= 0 ? 'text-green-500' : 'text-red-500'}">
-									${parseFloat(variacao) >= 0 ? '↗' : '↘'} ${Math.abs(parseFloat(variacao))}%
-								</p>
-							` : ''}
-						</div>
-					</div>
-					${f.valoresAnexo && f.valoresAnexo.length > 0 ? `
-						<div class="mt-2 pt-2 border-t border-gray-100">
-							<span class="text-xs text-gray-500 block mb-1">Por Anexo:</span>
-							<div class="flex flex-wrap gap-1">
-								${f.valoresAnexo.map(v => `
-									<span class="inline-block bg-emerald-100 text-emerald-800 text-xs px-2 py-0.5 rounded-full">
-										${v.anexo}: ${formatarMoeda(v.valor)}
-									</span>
-								`).join('')}
-							</div>
-						</div>
-					` : ''}
-					${f.massaSalarial ? `
-					  <div class="mt-2 p-2 bg-purple-50 border border-purple-100 rounded">
-						<span class="text-xs text-purple-700 font-medium">Massa Salarial:</span>
-						<span class="text-sm font-bold text-purple-800 ml-2">${formatarMoeda(f.massaSalarial)}</span>
-					  </div>
-					` : ''}					
-					<div class="flex justify-between items-center mt-2 pt-2 border-t border-gray-100">
-						<span class="text-xs text-gray-500">CNPJ: ${formatarCNPJ(f.cnpj)}</span>
-						<button onclick="editarFaturamento('${f.id}')" class="text-brand-600 hover:bg-brand-50 p-1.5 rounded text-sm">
-							<i class="fas fa-edit mr-1"></i> Editar
-						</button>
-					</div>
-				`;
-				lista.appendChild(div);
-			});
+			// Formatar como moeda
+			const centavos = valor.slice(-2);
+			const reais = valor.slice(0, -2) || '0';
+			
+			// Adicionar separadores de milhar
+			const reaisFormatados = reais.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+			
+			input.value = `R$ ${reaisFormatados},${centavos.padStart(2, '0')}`;
+		}
+		
+		function confirmarExcluirFaturamento(id, event) {
+			if (event) {
+				event.stopPropagation(); // Impede abrir detalhamento
+			}
+
+			const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+			const faturamento = faturamentos.find(f => f.id === id);
+
+			if (!faturamento) {
+				mostrarMensagem('Faturamento não encontrado!', 'error');
+				return;
+			}
+
+			const clientes = JSON.parse(localStorage.getItem('clientes') || '[]');
+			const cliente = clientes.find(c => c.cnpj === faturamento.cnpj);
+			const nomeCliente = cliente?.nomeFantasia || 'Empresa';
+			const periodo = formatarMesAno(faturamento.mes);
+			const anexos = Object.keys(faturamento.segregacao || {}).join(', ') || 'Nenhum';
+
+			const mensagem =
+			`Deseja realmente excluir o faturamento de\n ${nomeCliente}?\n\n` +
+			`Período: ${periodo}\n` +
+			`Valor: ${formatarMoeda(faturamento.valor)}\n\n` +			
+			`Esta ação não pode ser desfeita!`;
+
+		  mostrarModalConfirmacao(
+			'Excluir Faturamento',
+			mensagem,   // <- aqui agora é só texto, sem <strong> nem <br>
+			() => excluirFaturamento(id)
+		  );
+		}
+		
+		function excluirFaturamento(id) {
+		  let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  const faturamentoOriginal = faturamentos.find(f => f.id === id);
+		  
+		  faturamentos = faturamentos.filter(f => f.id !== id);
+		  localStorage.setItem('faturamento', JSON.stringify(faturamentos));
+		  removerResultadoImposto(cnpj, mes);
+		  
+		  mostrarMensagem(
+			`Faturamento excluído! ${formatarMoeda(faturamentoOriginal.valor)}`,
+			'success'
+		  );
+		  
+		  carregarFaturamento(); // Atualizar lista
+		}
+		
+		function mostrarModalConfirmacao(titulo, mensagem, onConfirm) {
+		  const modal = document.createElement('div');
+		  modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+
+		  modal.innerHTML = `
+			<div class="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl">
+			  <div class="flex flex-col items-center mb-4">
+				<div class="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center mb-2">
+				  <i class="fas fa-exclamation-triangle text-yellow-500"></i>
+				</div>
+				<h3 class="font-semibold text-base text-gray-800">${titulo}</h3>
+			  </div>
+			  <p id="mensagemConfirmacao" class="text-sm text-gray-700 whitespace-pre-line"></p>
+			  <div class="flex gap-3 mt-6 justify-end">
+				<button class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm" data-btn="cancelar">Cancelar</button>
+				<button class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm" data-btn="confirmar">Confirmar</button>
+			  </div>
+			</div>
+		  `;
+
+		  document.body.appendChild(modal);
+
+		  // aqui entra só texto
+		  modal.querySelector('#mensagemConfirmacao').textContent = mensagem;
+
+		  modal.addEventListener('click', (e) => {
+			if (e.target.dataset.btn === 'cancelar' || e.target === modal) {
+			  modal.remove();
+			}
+			if (e.target.dataset.btn === 'confirmar') {
+			  modal.remove();
+			  if (typeof onConfirm === 'function') onConfirm();
+			}
+		  });
+		}
+		
+		// === FUNÇÃO AUXILIAR: Mostrar/Ocultar Detalhamento ===
+		function mostrarDetalhamento(id) {
+		  const item = event.currentTarget.closest('.bg-white');
+		  const detalhamento = item.querySelector('.detalhamento-completo');
+		  
+		  if (detalhamento.classList.contains('hidden')) {
+			detalhamento.classList.remove('hidden');
+			event.currentTarget.innerHTML = '<i class="fas fa-eye-slash"></i>';
+		  } else {
+			detalhamento.classList.add('hidden');
+			event.currentTarget.innerHTML = '<i class="fas fa-eye"></i>';
+		  }
 		}
 
 		// Função auxiliar para obter mês anterior
@@ -1355,19 +2381,31 @@
 			return `${anoAnterior}-${mesAnterior.toString().padStart(2, '0')}`;
 		}
 
-		// Função para editar faturamento
+		// Função para editar faturamento - NOVO SISTEMA
 		function editarFaturamento(id) {
 		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
 		  const faturamento = faturamentos.find(f => f.id === id);
-		  if (!faturamento) return;
 
+		  if (!faturamento) {
+			mostrarMensagem('Faturamento não encontrado!', 'error');
+			return;
+		  }
+
+		  // Campos básicos
+		  document.getElementById('faturamentoId').value = faturamento.id;
 		  document.getElementById('cnpjFaturamento').value = faturamento.cnpj;
 		  document.getElementById('mesFaturamento').value = faturamento.mes;
-		  document.getElementById('valorFaturamento').value = faturamento.valor;
 
+		  // 🔹 Carregar anexos e depois preencher valores
+		  carregarAnexosFaturamento().then(() => {
+			preencherValoresSegregados(faturamento.segregacao);
+		  });
+
+		  // Flag de edição
 		  const form = document.getElementById('faturamentoForm');
 		  form.dataset.editId = id;
 
+		  // Botão em modo edição
 		  const submitBtn = document.querySelector('#faturamentoForm button[type="submit"]');
 		  if (submitBtn) {
 			submitBtn.innerHTML = '<i class="fas fa-sync-alt mr-2"></i> Atualizar Faturamento';
@@ -1375,29 +2413,43 @@
 			submitBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
 		  }
 
-		  // Reconstruir valores por anexo
-		  const container = document.getElementById('valoresAnexoContainer');
-		  const detalharBtn = document.getElementById('addValorAnexo');
-		  if (container && detalharBtn) {
-			container.innerHTML = '';
-			if (faturamento.valoresAnexo && faturamento.valoresAnexo.length > 0) {
-			  container.classList.remove('hidden');
-			  faturamento.valoresAnexo.forEach(v => {
-				const div = createValorAnexoItem();
-				const select = div.querySelector('select');
-				const input = div.querySelector('input');
-				if (select) select.value = v.anexo;
-				if (input) input.value = v.valor;
-				container.appendChild(div);
-			  });
-			} else {
-			  container.classList.add('hidden');
-			}
-		  }
-
 		  switchTab('faturamento');
-		  document.getElementById('faturamentoForm').scrollIntoView({ behavior: 'smooth' });
+		  form.scrollIntoView({ behavior: 'smooth' });
 		  mostrarMensagem('Faturamento carregado para edição', 'warning');
+		}
+
+		// === NOVA FUNÇÃO: Preencher valores segregados ===
+		function preencherValoresSegregados(segregacao) {
+		  if (!segregacao) return;
+		  
+		  // Para cada anexo salvo, preencher os campos correspondentes
+		  Object.entries(segregacao).forEach(([anexo, tipos]) => {
+			Object.entries(tipos).forEach(([tipo, valor]) => {
+			  if (valor > 0) {
+				const input = document.querySelector(`input[data-anexo="${anexo}"][data-tipo="${tipo}"]`);
+				if (input) {
+				  input.value = formatarMoeda(valor);
+				}
+			  }
+			});
+		  });
+		  
+		  // Recalcular totais
+		  calcularTotaisFaturamento();
+		  
+		  // Mostrar total
+		  const totalFaturamento = Object.values(segregacao).reduce((sum, tipos) => 
+			sum + Object.values(tipos).reduce((a, b) => a + b, 0), 0
+		  );
+		  //document.getElementById('totalFaturamento').value = formatarMoeda(totalFaturamento);
+		    if (registro.massaSalarial > 0) {
+			  const inputFatorR = document.querySelector(
+				`input[data-tipo="fatorR"]`
+			  );
+			  if (inputFatorR) {
+				inputFatorR.value = formatarMoeda(registro.massaSalarial);
+			  }
+			}
 		}
 		
 		// Calcular Fator R para empresa específica
@@ -1442,80 +2494,328 @@
 
 		// Obter Anexo efetivo para cálculo (considera Fator R)
 		function getAnexoEfetivoParaCalculo(cnpj, mesReferencia) {
-		  const fatorR = calcularFatorR(cnpj, mesReferencia);
-		  if (!fatorR) return null;
-		  
-		  return {
-			anexo: fatorR.anexoEfetivo,
-			fatorR: fatorR.fatorR + '%'
-		  };
+			const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+			const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
+			
+			// Situação atual
+			const situacaoAtual = buscarSituacaoAtual(cnpj, mesReferencia);
+			if (!situacaoAtual || situacaoAtual.tributacao !== 'simples') return null;
+			
+			// Verificar se tem Anexo V
+			const temAnexoV = Array.isArray(situacaoAtual.anexos) 
+				? situacaoAtual.anexos.some(a => a.anexo === 'V')
+				: situacaoAtual.anexo === 'V';
+			
+			if (!temAnexoV) return null;
+			
+			// Calcular RBT12 e Massa Salarial 12 meses
+			const dataLimite = new Date(mesReferencia + '-01');
+			dataLimite.setMonth(dataLimite.getMonth() - 12);
+			
+			const receita12Meses = faturamentos
+				.filter(f => f.cnpj === cnpj && new Date(f.mes + '-01') >= dataLimite)
+				.reduce((total, f) => total + parseFloat(f.valor || 0), 0);
+			
+			const massaSalarial12Meses = faturamentos
+				.filter(f => f.cnpj === cnpj && new Date(f.mes + '-01') >= dataLimite)
+				.reduce((total, f) => total + parseFloat(f.massaSalarial || 0), 0);
+			
+			if (receita12Meses === 0) return { fatorR: '0%', anexo: 'V' };
+			
+			const fatorR = (massaSalarial12Meses / receita12Meses) * 100;
+			const anexoEfetivo = fatorR >= 28 ? 'III' : 'V';
+			
+			return {
+				fatorR: fatorR.toFixed(2) + '%',
+				anexo: anexoEfetivo
+			};
 		}
 
-		// Atualizar a função de submit para lidar com edição
-		function salvarFaturamento(e) {
-		  e.preventDefault();
+		// === CARREGAR ANEXOS NA SELEÇÃO DE EMPRESA/MÊS ===
+		document.getElementById('cnpjFaturamento').addEventListener('change', carregarAnexosFaturamento);
+		document.getElementById('mesFaturamento').addEventListener('change', carregarAnexosFaturamento);
 
-		  const cnpj = document.getElementById('cnpjFaturamento').value;
-		  const mes = document.getElementById('mesFaturamento').value;
-		  const valor = parseFloat(document.getElementById('valorFaturamento').value.replace(',', '.')) || 0;
-		  const massaSalarial = parseFloat(document.getElementById('massaSalarial')?.value.replace(',', '.') || 0);
+		function carregarAnexosFaturamento() {
+			return new Promise(resolve => {
+			const cnpj = document.getElementById('cnpjFaturamento').value;
+			const mes = document.getElementById('mesFaturamento').value;
 		  
-		  const form = document.getElementById('faturamentoForm');
-		  const editId = form.dataset.editId;
-
-		  if (!cnpj || !mes || valor === 0) {
-			mostrarMensagem('Preencha empresa, mês e valor!', 'error');
-			return;
-		  }
-
-		  let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
-		  const valoresAnexo = getValoresAnexoData();
-
-		  if (editId) {
-			// Edição
-			const index = faturamentos.findIndex(f => f.id === editId);
-			if (index !== -1) {
-			  faturamentos[index] = {
-				id: editId,
-				cnpj,
-				mes,
-				valor,
-				massaSalarial,  // ← NOVO CAMPO
-				valoresAnexo
-			  };
-			  mostrarMensagem('Faturamento atualizado!');
+			if (!cnpj || !mes) {
+				document.getElementById('segregacaoAnexos').classList.add('hidden');
+				return;
 			}
-			delete form.dataset.editId;
-		  } else {
-			// Novo - remover duplicata do mesmo mês
-			faturamentos = faturamentos.filter(v => !(v.cnpj === cnpj && v.mes === mes));
-			
-			faturamentos.push({
-			  id: Date.now().toString(),
-			  cnpj,
-			  mes,
-			  valor,
-			  massaSalarial,  // ← NOVO CAMPO
-			  valoresAnexo
+		  
+			const situacao = buscarSituacaoVigente(cnpj, mes);
+			if (!situacao || situacao.tributacao !== 'simples') {
+				mostrarMensagem('Empresa sem situação Simples Nacional vigente!', 'warning');
+				return;
+			}
+		  
+			// ✅ CRIAR CAMPOS SEGREGADOS POR ANEXO
+			criarCamposSegregacao(situacao.regrasSimples.anexos, mes);
+			resolve();
 			});
-			mostrarMensagem('Faturamento registrado!');
+		}
+
+		function buscarSituacaoVigente(cnpj, mesReferencia) {
+		  const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
+		  const [ano, mes] = mesReferencia.split('-');
+		  
+		  return situacoes.find(s => 
+			s.cnpjEmpresa === cnpj && 
+			s.tributacao === 'simples' &&
+			s.dataSituacao <= `${ano}-${mes}-01`
+		  ) || null;
+		}
+
+		function criarCamposSegregacao(anexos, mesReferencia) {
+			const container = document.getElementById('camposAnexos');
+			container.innerHTML = '';
+			
+			anexos.forEach((anexo, index) => {
+				const divAnexo = document.createElement('div');
+				divAnexo.innerHTML = gerarHTMLCampoAnexo(anexo, index + 1);
+				container.appendChild(divAnexo);
+				
+				// ✅ Adicionar listeners para cada input
+				const inputs = divAnexo.querySelectorAll('.moeda-input');
+				inputs.forEach(input => {
+					input.addEventListener('input', function() {
+						formatarMoedaInput(this);
+						calcularTotaisFaturamento();
+					});
+				});
+			});
+			
+			document.getElementById('segregacaoAnexos').classList.remove('hidden');
+			calcularTotaisFaturamento(); // Calcular inicialmente
+		}
+
+		function gerarHTMLCampoAnexo(anexo, numero) {
+			const tipos = obterTiposFaturamento(anexo.anexo);
+			
+			let htmlTipos = '';
+			tipos.forEach(tipo => {
+				htmlTipos += `
+					<div class="grid grid-cols-2 gap-2 mb-2">
+						<label class="text-xs text-gray-600">${tipo.label}</label>
+						<input type="text" 
+							   class="moeda-input w-full p-2 border border-gray-200 rounded text-sm text-right" 
+							   data-anexo="${anexo.anexo}" 
+							   data-tipo="${tipo.id}"
+							   placeholder="0,00">
+					</div>
+				`;
+			});
+			
+			return `
+				<div class="anexo-container bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4" data-anexo-numero="${numero}">
+					<div class="flex items-center gap-3 mb-4">
+						<div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-700 font-bold">
+							${numero}
+						</div>
+						<div>
+							<h5 class="font-semibold text-blue-800">Anexo ${anexo.anexo} - ${anexo.atividades || 'Geral'}</h5>
+							<p class="text-xs text-gray-600">
+								ST: ${anexo.trataST ? 'Sim' : 'Não'} | 
+								Ret: ${anexo.trataRetencao ? 'Sim' : 'Não'} | 
+								Mono: ${anexo.monofasico ? 'Sim' : 'Não'}
+							</p>
+						</div>
+					</div>
+					${htmlTipos}
+					<div class="text-right mt-3 pt-3 border-t border-gray-200">
+						<strong class="text-sm text-gray-800">Subtotal: <span class="subtotal-anexo">R$ 0,00</span></strong>
+					</div>
+				</div>
+			`;
+		}
+
+		function obterTiposFaturamento(anexo) {
+		  const tipos = {
+			'I': [
+			  { id: 'comST', label: 'Com ST' },
+			  { id: 'semST', label: 'Sem ST' },
+			  { id: 'monofasico', label: 'Monofásico' }
+			],
+			'II': [
+			  { id: 'comST', label: 'Com ST' },
+			  { id: 'semST', label: 'Sem ST' },
+			  { id: 'monofasico', label: 'Monofásico' }
+			],
+			'III': [
+			  { id: 'comRetencao', label: 'Com Retenção ISS' },
+			  { id: 'semRetencao', label: 'Sem Retenção' }
+			],
+			'IV': [
+			  { id: 'comRetencao', label: 'Com Retenção ISS' },
+			  { id: 'semRetencao', label: 'Sem Retenção' }
+			],
+			'V': [
+			  { id: 'comRetencao', label: 'Com Retenção ISS' },
+			  { id: 'semRetencao', label: 'Sem Retenção' },
+			  { id: 'fatorR', label: 'Fator R (Registro)' }
+			]
+		  };
+		  return tipos[anexo] || [{ id: 'padrao', label: 'Padrão' }];
+		}
+
+		// ✅ CORRIGIDO: Cálculo com centavos + Fator R excluído
+		function calcularTotaisFaturamento() {
+			let totalGeral = 0;
+			const containersAnexos = document.querySelectorAll('#camposAnexos .anexo-container');
+			
+			containersAnexos.forEach((containerAnexo) => {
+				let subtotalAnexo = 0;
+				const inputs = containerAnexo.querySelectorAll('input.moeda-input');
+				const numero = containerAnexo.dataset.anexoNumero || containerAnexo.querySelector('h5')?.textContent.match(/\d+/)?.[0] || '1';
+				
+				inputs.forEach(input => {
+					let valor = 0;
+					const valorLimpo = input.value.replace(/[^\d,]/g, '').replace(',', '.');
+					valor = parseFloat(valorLimpo) || 0;
+					
+					// ✅ Excluir Fator R do subtotal e total geral
+					if (input.dataset.tipo !== 'fatorR') {
+						subtotalAnexo += valor;
+					}
+				});
+				
+				totalGeral += subtotalAnexo;
+				
+				// ✅ Atualizar subtotal do anexo usando o número correto
+				const subtotalSpan = containerAnexo.querySelector('.subtotal-anexo');
+				if (subtotalSpan) {
+					subtotalSpan.textContent = formatarMoeda(subtotalAnexo);
+				}
+			});
+			
+			// ✅ Atualizar total geral
+			const somaTotalElement = document.getElementById('somaTotalAnexos');
+			if (somaTotalElement) {
+				somaTotalElement.textContent = formatarMoeda(totalGeral);
+			}
+		}
+
+		// ✅ MÁSCARA MOEDA COM CENTAVOS
+		document.addEventListener('DOMContentLoaded', function() {
+		  document.addEventListener('input', function(e) {
+			if (e.target.classList.contains('moeda-input')) {
+			  let valor = e.target.value.replace(/[^\d,]/g, '');
+			  if (valor) {
+				const partes = valor.split(',');
+				if (partes[1] && partes[1].length > 2) {
+				  partes[1] = partes[1].substring(0, 2);
+				}
+				valor = partes.join(',');
+				e.target.value = 'R$ ' + valor;
+			  }
+			  calcularTotaisFaturamento();
+			}
+		  });
+		});
+
+		// === SALVAR FATURAMENTO ATUALIZADO ===
+		function salvarFaturamento(e) {
+			e.preventDefault();
+
+			const cnpj = document.getElementById('cnpjFaturamento').value;
+			const mes = document.getElementById('mesFaturamento').value;
+			const id = document.getElementById('faturamentoId').value;
+
+			if (!cnpj || !mes) {
+				mostrarMensagem('Preencha empresa e mês!', 'error');
+				return;
+			}
+		  
+			// 🔎 Carrega todos os faturamentos
+			let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+			
+			// ✅ Validação de duplicidade (mesmo CNPJ + mês)
+			const duplicado = faturamentos.find(f =>
+				f.cnpj === cnpj &&
+				f.mes  === mes  &&
+				f.id  !== id     // permite atualizar o próprio registro em edição
+			);
+
+			if (duplicado) {
+				mostrarMensagem('Já existe faturamento para esta empresa e mês. Edite o registro existente.', 'error');
+				return;
+			}
+
+		  const segregacao = {};
+		  const fatorRTotal = [];
+		  const salariosMes = [];
+		  const massaSalarialMes = salariosMes.reduce((acc, curr) => acc + curr.valor, 0);
+
+		  // percorre todos os cards de anexo
+		  document.querySelectorAll('#camposAnexos .bg-white').forEach(container => {
+			const titulo = container.querySelector('h5')?.textContent || '';
+			const match = titulo.match(/Anexo\s+([IVX]+)/i);
+			if (!match) return;
+
+			const anexo = match[1]; // I, II, III, IV, V
+
+			if (!segregacao[anexo]) {
+			  segregacao[anexo] = {};
+			}
+
+			container.querySelectorAll('input.moeda-input').forEach(input => {
+			  const tipo = input.dataset.tipo;         // comST, semST, monofasico, comRetencao, etc.
+			  const valorTexto = input.value.replace(/[^\d,]/g, '').replace(',', '.');
+			  const valor = parseFloat(valorTexto) || 0;
+
+			  if (valor > 0) {
+				if (tipo === 'salarioMes') {
+				  // só registra, não entra no total
+				  fatorRTotal.push({ anexo, valor });
+				} else {
+				  segregacao[anexo][tipo] = (segregacao[anexo][tipo] || 0) + valor;				
+				}
+			  }
+			});
+		  });
+
+		  // total operacional (sem fator R)
+		  const totalOperacional = Object.values(segregacao).reduce(
+			(somaAnexos, objTipos) =>
+			  somaAnexos +
+			  Object.values(objTipos).reduce((somaTipos, v) => somaTipos + v, 0),
+			0
+		  );
+          
+          // Capturar Fator R Inputado para registro se houver
+        //  const massaSalarialMes = fatorRTotal.length > 0 ? fatorRTotal.reduce((acc, curr) => acc + curr.valor, 0) : 0;
+
+		  const faturamento = {
+			id: id || Date.now().toString(),
+			cnpj,
+			mes,
+			valor: totalOperacional,
+            massaSalarial: massaSalarialMes, // Salvar massa salarial no registro para cálculo do Fator R futuro
+			segregacao,                // agora com todos os anexos
+		//	fatorR: fatorRTotal.length ? fatorRTotal : undefined,
+			dataRegistro: new Date().toISOString()
+		  };
+
+		  //let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  if (id) {
+			const idx = faturamentos.findIndex(f => f.id === id);
+			if (idx !== -1) faturamentos[idx] = faturamento;
+		  } else {
+			faturamentos.push(faturamento);
 		  }
 
 		  localStorage.setItem('faturamento', JSON.stringify(faturamentos));
-		  form.reset();
-		  
-		  // Resetar botão
-		  const submitBtn = form.querySelector('button[type="submit"]');
-		  if (submitBtn) {
-			submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> Salvar Faturamento';
-			submitBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
-			submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-		  }
+		  mostrarMensagem(
+			`Faturamento ${id ? 'atualizado' : 'registrado'}! ${formatarMoeda(totalOperacional)}`,
+			'success'
+		  );
 
 		  carregarFaturamento();
-		  atualizarGraficoFaturamento();
+		  document.getElementById('limparFaturamento').click();
 		}
-
+		
 		// Função para atualizar gráfico de faturamento
 		function atualizarGraficoFaturamento() {
 		  const container = document.getElementById('graficoFaturamento');
@@ -1692,23 +2992,24 @@
         
         // --- 6. CÁLCULO DE IMPOSTOS (CORREÇÃO DE FUNCIONALIDADE) ---
         
-        function buscarSituacaoAtual(cnpj, mes) {
-             const situacoes = JSON.parse(localStorage.getItem('situacoes')) || [];
-             const dataLimite = mes + '-01'; // O dia 1 do mês de referência
-             
-             // Filtra situações que entraram em vigor ANTES ou NO MÊS de referência
-             const situacoesValidas = situacoes.filter(s => 
-                 s.cnpjEmpresa === cnpj && s.dataSituacao <= dataLimite
-             );
-             
-             // Ordena para pegar a mais recente
-             situacoesValidas.sort((a, b) => new Date(b.dataSituacao) - new Date(a.dataSituacao));
-             
-             return situacoesValidas.length > 0 ? situacoesValidas[0] : null;
-        }
+		  // Buscar situação tributária vigente para o mês
+		function buscarSituacaoAtual(cnpj, mesReferencia) {
+			const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
+			
+			// Filtrar situações da empresa até o mês de referência
+			const situacoesEmpresa = situacoes
+				.filter(s => s.cnpjEmpresa === cnpj)
+				.filter(s => s.dataSituacao <= mesReferencia);
+			
+			if (situacoesEmpresa.length === 0) return null;
+			
+			// Retornar a mais recente
+			situacoesEmpresa.sort((a, b) => new Date(b.dataSituacao) - new Date(a.dataSituacao));
+			return situacoesEmpresa[0];
+		}
         
         // ====================================================
-		// FUNÇÃO CÁLCULO DE IMPOSTOS COM VIGÊNCIA
+		// FUNÇÃO CÁLCULO DE IMPOSTOS COM VIGÊNCIA (ATUALIZADA)
 		// ====================================================
 
 		function calcularImpostos() {
@@ -1737,6 +3038,7 @@
 			}
 			
 			const valorFaturamento = parseFloat(faturamentoMes.valor);
+			const rbt12 = calcularRBT12(cnpj, mesReferencia); // 1️⃣ calcular RBT12
 
 			// 2. Encontrar situação tributária
 			const situacao = buscarSituacaoAtual(cnpj, mesReferencia);
@@ -1746,397 +3048,420 @@
 				resultadoDiv.classList.remove('hidden');
 				return;
 			}
+			
+			const massaSalarial12Meses = faturamentos
+			  .filter(f => f.cnpj === cnpj && f.mes < mesReferencia)
+			  .slice(-12)
+			  .reduce((t, f) => t + Number(f.massaSalarial || 0), 0);
 
-			let impostoCalculado = 0;
+			const fatorR = rbt12 > 0 ? massaSalarial12Meses / rbt12 : 0;
+
+			let impostoCalculadoTotal = 0;
+			let resultadoDetalhado = {
+			  faturamentoMes: valorFaturamento,
+			  rbt12: rbt12,
+			  impostoTotal: 0,
+			  anexos: {}
+			};
 			let regime = situacao.tributacao;
-			let detalhes = [];
+			let detalhesHTML = '';
+			let resumoGeral = '';
+			
+			// Objeto que será persistido no localStorage
+			let resultadoParaSalvar = {
+				faturamento: valorFaturamento,
+				detalhes: {},
+				totalImposto: 0
+			};
 
 			if (regime === 'simples') {
-				// ✅ CORRIGIDO: Determinar anexo efetivo (Fator R + múltiplos anexos)
-				let anexos = Array.isArray(situacao.anexos) ? situacao.anexos : [];
-				let anexoPrincipal = anexos.length > 0 ? anexos[0].anexo : 'III'; // Primeiro anexo
-				
-				// Verificar Fator R se tem Anexo V
-				const fatorRInfo = getAnexoEfetivoParaCalculo(cnpj, mesReferencia);
-				if (fatorRInfo && anexoPrincipal === 'V') {
-					anexoPrincipal = fatorRInfo.anexo; // III ou V baseado no Fator R
-				}
+				// --- LÓGICA DO SIMPLES NACIONAL ---
+				resultadoParaSalvar.regime = 'simples';
+				resultadoParaSalvar.anexos = {};
+				//resultadoParaSalvar.fatorR = fatorR || 0;
+				//resultadoParaSalvar.rbt12 = rbt12 || 0;
 
-				// Mostrar cabeçalho com Fator R
-				let cabecalho = `
-					<div class="space-y-4">
-						<div class="bg-green-50 p-4 rounded-lg border border-green-200">
-							<h3 class="font-bold text-lg text-green-800 mb-2">Simples Nacional - Anexo ${anexoPrincipal}</h3>
-							<p class="text-sm text-green-700">Faturamento: ${formatarMoeda(valorFaturamento)}</p>
-				`;
-				
-				if (fatorRInfo) {
-					cabecalho += `
-						<p class="text-sm text-green-700 mt-1">
-							<i class="fas fa-calculator mr-1"></i> Fator R: <strong>${fatorRInfo.fatorR}</strong> 
-							${fatorRInfo.anexo === 'III' ? '(Anexo III - vantajoso)' : '(Anexo V)'}
-						</p>
-					`;
-				}
-				cabecalho += `</div>`;
-
-				// Buscar faixas parametrizadas para o ANEXO CORRETO
-				const faixas = JSON.parse(localStorage.getItem('paramFaixasSimples') || '[]');
-				const faixasVigentes = faixas.filter(f => 
-					f.anexo === anexoPrincipal &&  // ← CORRIGIDO: usar anexoPrincipal
-					f.vigencia <= mesReferencia
-				);
-
-				if (faixasVigentes.length === 0) {
-					resultadoDiv.innerHTML = `
-						<div class="p-4 bg-red-100 border border-red-300 rounded-lg text-red-800 text-center">
-							Nenhuma faixa do Simples Nacional encontrada para o Anexo <strong>${anexoPrincipal}</strong> vigente em ${mesReferencia}.
-							<br><br>
-							<small>Verifique se parametrizou as faixas do Anexo ${anexoPrincipal} em "Parametrização > Simples Nacional".</small>
-						</div>
-					`;
-					resultadoDiv.classList.remove('hidden');
-					return;
-				}
-
-				// Faixa mais recente
-				faixasVigentes.sort((a, b) => b.vigencia.localeCompare(a.vigencia));
-				const vigenciaAtual = faixasVigentes[0].vigencia;
-				const faixasVigenciaAtual = faixasVigentes.filter(f => f.vigencia === vigenciaAtual);
-
-				// Calcular RBT12
+				// 1. Calcular RBT12
 				const rbt12 = calcularRBT12(cnpj, mesReferencia);
+				
+				// 2. Calcular Fator R
+				const dataLimite = new Date(mesReferencia + '-01');
+				dataLimite.setMonth(dataLimite.getMonth() - 12);
+				
+				const massaSalarial12Meses = faturamentos
+					.filter(f => f.cnpj === cnpj && f.mes < mesReferencia && new Date(f.mes + '-01') >= dataLimite)
+					.reduce((total, f) => total + parseFloat(f.massaSalarial || 0), 0);
 
-				const faixaAplicavel = faixasVigenciaAtual.find(f => 
-					parseFloat(f.inicio) <= rbt12 && 
-					parseFloat(f.fim) >= rbt12
-				);
-
-				if (faixaAplicavel) {
-					const aliquota = parseFloat(faixaAplicavel.aliquota) / 100;
-					const deducao = parseFloat(faixaAplicavel.deduzir);
-					
-					// Alíquota efetiva
-					const aliquotaEfetiva = ((rbt12 * aliquota) - deducao) / rbt12;
-					impostoCalculado = valorFaturamento * aliquotaEfetiva;
-
-					// Repartição por tributo
-					let reparticaoDetalhes = [];
-					if (faixaAplicavel.reparticao) {
-						Object.entries(faixaAplicavel.reparticao).forEach(([tributo, percentual]) => {
-							if (percentual > 0) {
-								const valorTributo = impostoCalculado * (percentual / 100);
-								reparticaoDetalhes.push({
-									tributo,
-									percentual,
-									valor: valorTributo
-								});
-							}
-						});
-					}
-
-					// Detalhes do cálculo
-					detalhes = [
-						{ descricao: "Base de Cálculo (Venda do Mês)", valor: formatarMoeda(valorFaturamento), icone: 'fas fa-money-bill-wave' },
-						{ descricao: "RBT12 (12 meses anteriores)", valor: formatarMoeda(rbt12), icone: 'fas fa-chart-line' },
-						{ descricao: `Anexo ${anexoPrincipal}`, valor: `Vigência ${vigenciaAtual}`, icone: 'fas fa-clipboard-list' },
-						{ descricao: "Faixa Aplicada", valor: faixaAplicavel.nome, icone: 'fas fa-layer-group' },
-						{ descricao: "Alíquota Efetiva", valor: `${(aliquotaEfetiva * 100).toFixed(2)}%`, icone: 'fas fa-percentage' }
-					];
-
-					// Adicionar repartição
-					reparticaoDetalhes.forEach(rep => {
-						detalhes.push({
-							descricao: `  → ${rep.tributo} (${rep.percentual.toFixed(2)}%)`,
-							valor: formatarMoeda(rep.valor),
-							icone: 'fas fa-arrow-right',
-							indent: true
-						});
-					});
-
-				} else {
-					detalhes.push({ 
-						descricao: "Erro de Faixa", 
-						valor: `Nenhuma faixa encontrada para RBT12 ${formatarMoeda(rbt12)} no Anexo ${anexoPrincipal}`, 
-						icone: 'fas fa-exclamation-triangle', 
-						color: 'text-red-600' 
-					});
+				let fatorR = 0;
+				if (rbt12 > 0) {
+					fatorR = massaSalarial12Meses / rbt12;
 				}
-			} else if (regime === 'presumido') {
-				// Lógica do Lucro Presumido com vigência
-				const configs = JSON.parse(localStorage.getItem('paramPresumido')) || [];
+				const fatorRPercentual = fatorR * 100;
+				const fatorRTexto = `${fatorRPercentual.toFixed(2)}%`;
 				
-				// Filtrar configurações com vigência <= mês de referência
-				const configsVigentes = configs.filter(c => c.vigencia <= mesReferencia);
-				
-				if (configsVigentes.length === 0) {
-					detalhes.push({ 
-						descricao: "Erro de Parametrização", 
-						valor: `Nenhuma configuração do Lucro Presumido encontrada para vigência ${mesReferencia}.`,
-						icone: 'fas fa-bug',
-						color: 'text-red-600'
-					});
-				} else {
-					// Ordenar por vigência (mais recente primeiro)
-					configsVigentes.sort((a, b) => b.vigencia.localeCompare(a.vigencia));
-					const configVigente = configsVigentes[0];
-					
-					// Cálculo do Lucro Presumido
-					const presuncaoIRPJ = configVigente.presuncaoIRPJ / 100;
-					const aliquotaIRPJ = configVigente.aliquotaIRPJ / 100;
-					const adicionalIRPJ = configVigente.adicionalIRPJ / 100;
-					const presuncaoCSLL = configVigente.presuncaoCSLL / 100;
-					const aliquotaCSLL = configVigente.aliquotaCSLL / 100;
-					const pisCofins = configVigente.PISCOFINS / 100;
-					const iss = (configVigente.ISS || 0) / 100;
-					const icms = (configVigente.ICMS || 0) / 100;
-					
-					// Cálculo base
-					const baseIRPJ = valorFaturamento * presuncaoIRPJ;
-					const baseCSLL = valorFaturamento * presuncaoCSLL;
-					
-					// Cálculo dos impostos
-					let valorIRPJ = baseIRPJ * aliquotaIRPJ;
-					
-					// Adicional de IRPJ (se aplicável)
-					if (valorFaturamento > (configVigente.limiteAdicional || 20000)) {
-						const baseAdicional = valorFaturamento - (configVigente.limiteAdicional || 20000);
-						valorIRPJ += baseAdicional * adicionalIRPJ;
-					}
-					
-					const valorCSLL = baseCSLL * aliquotaCSLL;
-					const valorPISCOFINS = valorFaturamento * pisCofins;
-					const valorISS = iss > 0 ? valorFaturamento * iss : 0;
-					const valorICMS = icms > 0 ? valorFaturamento * icms : 0;
-					
-					impostoCalculado = valorIRPJ + valorCSLL + valorPISCOFINS + valorISS + valorICMS;
-					
-					detalhes.push({ 
-						descricao: "Base de Cálculo", 
-						valor: formatarMoeda(valorFaturamento), 
-						icone: 'fas fa-money-bill-wave' 
-					});
-					detalhes.push({ 
-						descricao: "Configuração Aplicada", 
-						valor: configVigente.nome, 
-						icone: 'fas fa-clipboard-list' 
-					});
-					detalhes.push({ 
-						descricao: "Vigência", 
-						valor: configVigente.vigencia, 
-						icone: 'fas fa-calendar-alt' 
-					});
-					detalhes.push({ 
-						descricao: "IRPJ", 
-						valor: formatarMoeda(valorIRPJ), 
-						icone: 'fas fa-file-invoice-dollar' 
-					});
-					detalhes.push({ 
-						descricao: "CSLL", 
-						valor: formatarMoeda(valorCSLL), 
-						icone: 'fas fa-file-invoice-dollar' 
-					});
-					detalhes.push({ 
-						descricao: "PIS/COFINS", 
-						valor: formatarMoeda(valorPISCOFINS), 
-						icone: 'fas fa-file-invoice-dollar' 
-					});
-					
-					if (valorISS > 0) {
-						detalhes.push({ 
-							descricao: "ISS", 
-							valor: formatarMoeda(valorISS), 
-							icone: 'fas fa-file-invoice-dollar' 
-						});
-					}
-					
-					if (valorICMS > 0) {
-						detalhes.push({ 
-							descricao: "ICMS", 
-							valor: formatarMoeda(valorICMS), 
-							icone: 'fas fa-file-invoice-dollar' 
-						});
-					}
-				}
-			} else if (regime === 'real') {
-				// Lógica do Lucro Real com vigência
-				const configs = JSON.parse(localStorage.getItem('paramReal')) || [];
-				
-				// Filtrar configurações com vigência <= mês de referência
-				const configsVigentes = configs.filter(c => c.vigencia <= mesReferencia);
-				
-				if (configsVigentes.length === 0) {
-					detalhes.push({ 
-						descricao: "Erro de Parametrização", 
-						valor: `Nenhuma configuração do Lucro Real encontrada para vigência ${mesReferencia}.`,
-						icone: 'fas fa-bug',
-						color: 'text-red-600'
-					});
-				} else {
-					// Ordenar por vigência (mais recente primeiro)
-					configsVigentes.sort((a, b) => b.vigencia.localeCompare(a.vigencia));
-					const configVigente = configsVigentes[0];
-					
-					// Cálculo do Lucro Real (simplificado)
-					const aliquotaIRPJ = configVigente.aliquotaIRPJ / 100;
-					const adicionalIRPJ = configVigente.adicionalIRPJ / 100;
-					const aliquotaCSLL = configVigente.aliquotaCSLL / 100;
-					const pis = configVigente.PIS / 100;
-					const cofins = configVigente.COFINS / 100;
-					const iss = (configVigente.ISS || 0) / 100;
-					const icms = (configVigente.ICMS || 0) / 100;
-					
-					// Base de cálculo (aqui assumimos que o lucro real é 30% da receita para simplificação)
-					const lucroReal = valorFaturamento * 0.3;
-					
-					// Verificar isenções
-					const baseIRPJ = lucroReal > configVigente.isencaoIRPJ ? lucroReal - configVigente.isencaoIRPJ : 0;
-					const baseCSLL = lucroReal > configVigente.isencaoCSLL ? lucroReal - configVigente.isencaoCSLL : 0;
-					
-					// Cálculo dos impostos
-					let valorIRPJ = baseIRPJ * aliquotaIRPJ;
-					
-					// Adicional de IRPJ (se aplicável)
-					if (lucroReal > (configVigente.limiteAdicional || 20000)) {
-						const baseAdicional = lucroReal - (configVigente.limiteAdicional || 20000);
-						valorIRPJ += baseAdicional * adicionalIRPJ;
-					}
-					
-					const valorCSLL = baseCSLL * aliquotaCSLL;
-					const valorPIS = valorFaturamento * pis;
-					const valorCOFINS = valorFaturamento * cofins;
-					const valorISS = iss > 0 ? valorFaturamento * iss : 0;
-					const valorICMS = icms > 0 ? valorFaturamento * icms : 0;
-					
-					impostoCalculado = valorIRPJ + valorCSLL + valorPIS + valorCOFINS + valorISS + valorICMS;
-					
-					detalhes.push({ 
-						descricao: "Receita Bruta", 
-						valor: formatarMoeda(valorFaturamento), 
-						icone: 'fas fa-money-bill-wave' 
-					});
-					detalhes.push({ 
-						descricao: "Lucro Real Estimado (30%)", 
-						valor: formatarMoeda(lucroReal), 
-						icone: 'fas fa-chart-line' 
-					});
-					detalhes.push({ 
-						descricao: "Configuração Aplicada", 
-						valor: configVigente.nome, 
-						icone: 'fas fa-clipboard-list' 
-					});
-					detalhes.push({ 
-						descricao: "Vigência", 
-						valor: configVigente.vigencia, 
-						icone: 'fas fa-calendar-alt' 
-					});
-					detalhes.push({ 
-						descricao: "IRPJ", 
-						valor: formatarMoeda(valorIRPJ), 
-						icone: 'fas fa-file-invoice-dollar' 
-					});
-					detalhes.push({ 
-						descricao: "CSLL", 
-						valor: formatarMoeda(valorCSLL), 
-						icone: 'fas fa-file-invoice-dollar' 
-					});
-					detalhes.push({ 
-						descricao: "PIS", 
-						valor: formatarMoeda(valorPIS), 
-						icone: 'fas fa-file-invoice-dollar' 
-					});
-					detalhes.push({ 
-						descricao: "COFINS", 
-						valor: formatarMoeda(valorCOFINS), 
-						icone: 'fas fa-file-invoice-dollar' 
-					});
-					
-					if (valorISS > 0) {
-						detalhes.push({ 
-							descricao: "ISS", 
-							valor: formatarMoeda(valorISS), 
-							icone: 'fas fa-file-invoice-dollar' 
-						});
-					}
-					
-					if (valorICMS > 0) {
-						detalhes.push({ 
-							descricao: "ICMS", 
-							valor: formatarMoeda(valorICMS), 
-							icone: 'fas fa-file-invoice-dollar' 
-						});
-					}
-				}
-			} else {
-				 detalhes.push({ 
-					descricao: "Regime Não Suportado", 
-					valor: `O cálculo para ${regime.toUpperCase()} ainda não está implementado.`, 
-					icone: 'fas fa-tools',
-					color: 'text-orange-600'
+				// Persistência do Fator R e RBT12
+				resultadoParaSalvar.fatorR = fatorR;
+				resultadoParaSalvar.rbt12 = rbt12;
+
+				// Resumo
+				resumoGeral = `
+					<div class="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
+						<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+							<div>
+								<p class="text-xs text-blue-600 font-bold uppercase">Faturamento Mês</p>
+								<p class="text-lg font-bold text-gray-800">${formatarMoeda(valorFaturamento)}</p>
+							</div>
+							<div>
+								<p class="text-xs text-blue-600 font-bold uppercase">RBT12 (Anterior)</p>
+								<p class="text-lg font-bold text-gray-800">${formatarMoeda(rbt12)}</p>
+							</div>
+							 <div>
+								<p class="text-xs text-blue-600 font-bold uppercase">Fator R</p>
+								<p class="text-lg font-bold ${fatorR >= 0.28 ? 'text-green-600' : 'text-orange-600'}">${fatorRTexto}</p>
+							</div>
+							<div>
+								<p class="text-xs text-blue-600 font-bold uppercase">Competência</p>
+								<p class="text-lg font-bold text-gray-800">${formatarMesAno(mesReferencia)}</p>
+							</div>
+						</div>
+					</div>
+				`;
+
+				// 3. Buscar anexos da situação
+				const anexosDaEmpresa = situacao.regrasSimples?.anexos || situacao.anexos || [];
+				const segregacao = faturamentoMes.segregacao || {};
+				const faixas = JSON.parse(localStorage.getItem('paramFaixasSimples') || '[]');
+
+				// DEBUG: Mostrar informações
+				console.log('DEBUG - Situação da empresa:', {
+					empresa: situacao.cnpjEmpresa,
+					anexosCadastrados: anexosDaEmpresa,
+					segregacaoFaturamento: segregacao,
+					regime: regime
 				});
-			}
 
-			// Renderizar Resultado
-			const cliente = JSON.parse(localStorage.getItem('clientes') || '[]').find(c => c.cnpj === cnpj);
-			const nomeCliente = cliente ? cliente.nomeFantasia : 'Empresa Desconhecida';
+				if (Object.keys(segregacao).length === 0) {
+					// Faturamento sem segregação - usar cálculo global
+					detalhesHTML += `<div class="p-4 bg-yellow-100 text-yellow-800 rounded mb-4">Atenção: Faturamento não possui segregação detalhada. Usando cálculo global.</div>`;
+					
+					// Encontrar principal anexo da empresa
+					const principalAnexo = anexosDaEmpresa.length > 0 ? anexosDaEmpresa[0].anexo : null;
+					
+					if (principalAnexo) {
+						detalhesHTML += calcularFaturamentoGlobal(
+							principalAnexo, 
+							valorFaturamento, 
+							rbt12, 
+							fatorR, 
+							mesReferencia, 
+							faixas,
+							anexosDaEmpresa.find(a => a.anexo === principalAnexo)
+						);
+					}
+				} else {
+					// Faturamento com segregação
+					let anexosComProblema = [];
+					
+					for (const [anexoFaturamento, tipos] of Object.entries(segregacao)) {
+						// Verificar se este anexo existe na situação da empresa
+						const anexoEmpresa = Array.isArray(anexosDaEmpresa) 
+							? anexosDaEmpresa.find(a => a.anexo === anexoFaturamento)
+							: null;
+						
+						if (!anexoEmpresa) {
+							anexosComProblema.push(anexoFaturamento);
+							continue;
+						}
+						
+						// Calcular para este anexo
+						const resultadoAnexo = calcularAnexoDetalhado(
+							anexoFaturamento,
+							anexoEmpresa,
+							tipos,
+							rbt12,
+							fatorR,
+							mesReferencia,
+							faixas
+						);
+						
+						detalhesHTML += resultadoAnexo.html;
+						impostoCalculadoTotal += resultadoAnexo.total;
+						const a = resultadoAnexo.dadosResumo.anexo;
+
+						// cria o anexo se não existir
+						if (!resultadoDetalhado.anexos[a]) {
+						  resultadoDetalhado.anexos[a] = {
+							faturamento: {},
+							imposto: {}
+						  };
+						}
+
+						Object.assign( // copia faturamento segregado
+						  resultadoDetalhado.anexos[a].faturamento,
+						  resultadoAnexo.dadosResumo.faturamento
+						);
+
+						Object.assign( // copia imposto segregado
+						  resultadoDetalhado.anexos[a].imposto,
+						  resultadoAnexo.dadosResumo.imposto
+						);
+
+						if (a === 'V') { // campos exclusivos do Anexo V
+						  resultadoDetalhado.anexos[a].fatorR = fatorR;
+						  resultadoDetalhado.anexos[a].salarioMes = massaSalarial12Meses;
+						}
+						resultadoParaSalvar.anexos[anexoFaturamento] = {
+							total: resultadoAnexo.total,
+							detalhes: resultadoAnexo.detalhes || {}
+						};
+					}
+					
+					// Mostrar avisos para anexos sem correspondência
+					if (anexosComProblema.length > 0) {
+						detalhesHTML += `
+							<div class="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
+								<h5 class="font-bold text-red-800 mb-2">⚠️ Aviso: Inconsistência detectada</h5>
+								<p class="text-sm text-red-700">
+									Os seguintes anexos foram encontrados no faturamento mas NÃO estão cadastrados na situação tributária da empresa:
+								</p>
+								<ul class="list-disc pl-5 mt-2 text-sm">
+									${anexosComProblema.map(anexo => `<li><strong>Anexo ${anexo}</strong></li>`).join('')}
+								</ul>
+								<p class="text-sm text-red-700 mt-2">
+									<a href="javascript:void(0)" onclick="editarSituacaoPorCNPJ('${cnpj}')" class="underline font-medium">
+										Clique aqui para editar a situação tributária
+									</a>
+								</p>
+							</div>
+						`;
+					}
+					
+					// Se nenhum anexo foi processado, fazer cálculo global
+					if (anexosComProblema.length === Object.keys(segregacao).length) {
+						const principalAnexo = anexosDaEmpresa.length > 0 ? anexosDaEmpresa[0].anexo : 'I';
+						detalhesHTML += calcularFaturamentoGlobal(
+							principalAnexo, 
+							valorFaturamento, 
+							rbt12, 
+							fatorR, 
+							mesReferencia, 
+							faixas,
+							anexosDaEmpresa[0]
+						);
+						resultadoParaSalvar.anexos[principalAnexo] = {
+							total: impostoCalculadoTotal,
+							tipo: 'global'
+						};
+					}
+				}
+
+			} else {
+				// Lógica para Presumido/Real (mantenha seu código existente)
+				// ...
+			}
 			
-			let htmlDetalhes = detalhes.map(d => `
-				<div class="flex justify-between py-2 border-b last:border-b-0 ${d.indent ? 'pl-6' : ''}">
-					<span class="text-sm text-gray-600 flex items-center gap-2 ${d.color || ''}">
-						${d.icone ? `<i class="${d.icone}"></i>` : ''}
-						${d.descricao}
-					</span>
-					<span class="font-semibold text-gray-800 ${d.color || ''}">${d.valor}</span>
-				</div>
-			`).join('');
-			
+			resultadoParaSalvar.totalImposto = impostoCalculadoTotal;
+
+			// 🔐 SALVAR RESULTADO PARA O RESUMO
+			salvarResultadoImposto(
+				cnpj,
+				mesReferencia,
+				regime,
+				resultadoParaSalvar
+			);
+
+			// Renderizar resultado
 			resultadoDiv.innerHTML = `
-				${cabecalho || ''}
-				<h3 class="text-xl font-bold text-gray-800 mb-2">${nomeCliente}</h3>
-				<p class="text-sm text-purple-600 mb-6 font-medium">
-					Referência: ${mesReferencia} | Regime: ${regime.toUpperCase()}
-				</p>
-				
-				<div class="space-y-4 bg-white p-4 rounded-lg border shadow-sm">
-					${htmlDetalhes}
+				<h3 class="text-xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+					<i class="fas fa-calculator text-purple-600"></i>
+					Memória de Cálculo
+				</h3>
+				${resumoGeral}
+				<div class="space-y-4">
+					${detalhesHTML}
 				</div>
-				
-				<div class="mt-8 pt-4 border-t border-purple-300 flex justify-between items-center bg-purple-50 p-4 rounded-lg">
-					<span class="text-lg font-bold text-purple-800">TOTAL DE IMPOSTO ESTIMADO</span>
-					<span class="text-3xl font-extrabold text-purple-800">${formatarMoeda(impostoCalculado)}</span>
+				<div class="mt-8 bg-gray-900 text-white p-6 rounded-xl shadow-lg flex justify-between items-center">
+					<div>
+						<p class="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Total Estimado a Pagar</p>
+						<p class="text-xs text-gray-500">Vencimento: dia 20 do mês seguinte</p>
+					</div>
+					<div class="text-3xl font-bold">${formatarMoeda(impostoCalculadoTotal)}</div>
 				</div>
 			`;
 			resultadoDiv.classList.remove('hidden');
+			resultadoDetalhado.impostoTotal = impostoCalculadoTotal;
+
+			salvarResultadoImposto({
+			  cnpj,
+			  mes: mesReferencia,
+			  regime,
+			  resultado: resultadoDetalhado
+			});
+		}	
+		
+		// FUNÇÃO AUXILIAR: Calcular anexo detalhado
+		function calcularAnexoDetalhado(anexo, dadosAnexoEmpresa, tiposFaturamento, rbt12, fatorR, mesReferencia, faixas) {
+		  let html = '';
+		  let totalImpostoAnexo = 0;
+
+		  const dadosResumo = {
+			anexo,
+			faturamento: {},
+			imposto: {}
+		  };
+
+		  Object.entries(tiposFaturamento).forEach(([tipo, valorFaturado]) => {
+			const valor = Number(valorFaturado || 0);
+			if (valor <= 0) return;
+
+			// 1️⃣ Determinar alíquota
+			const faixa = encontrarFaixaSimples(anexo, rbt12, fatorR, faixas);
+			const aliquota = faixa.aliquota;
+
+			// 2️⃣ Calcular imposto
+			const imposto = valor * aliquota;
+
+			// 3️⃣ Acumular
+			totalImpostoAnexo += imposto;
+
+			// 4️⃣ SALVAR PARA O RESUMO (nível 2)
+			dadosResumo.faturamento[tipo] = valor;
+			dadosResumo.imposto[tipo] = imposto;
+
+			// 5️⃣ HTML (exibição)
+			html += `
+			  <div class="p-3 border rounded mb-2">
+				<strong>Anexo ${anexo}</strong><br>
+				Tipo: ${formatarTipo(tipo)}<br>
+				Faturamento: ${formatarMoeda(valor)}<br>
+				Alíquota: ${(aliquota * 100).toFixed(2)}%<br>
+				Imposto: ${formatarMoeda(imposto)}
+			  </div>
+			`;
+		  });
+
+		  return {
+			html,
+			total: totalImpostoAnexo,
+			dadosResumo
+		  };
+		}
+		
+		// FUNÇÃO AUXILIAR: Calcular faturamento global (sem segregação)
+		function calcularFaturamentoGlobal(anexo, valorTotal, rbt12, fatorR, mesReferencia, faixas, anexoEmpresa) {
+			// Similar à função anterior, mas para cálculo global
+			// ... (implementação similar ao cálculo detalhado, mas sem tipos segregados)
+			
+			return `
+				<div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+					<p class="font-bold text-blue-800">Cálculo Global (Anexo ${anexo})</p>
+					<p class="text-sm text-blue-700">Usando alíquota geral do Anexo ${anexo}</p>
+					<!-- Adicione o cálculo aqui -->
+				</div>
+			`;
+		}
+		
+		function salvarResultadoImposto(cnpj, mes, regime, resultado) {
+			const dados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+
+			const idx = dados.findIndex(
+				r => r.cnpj === cnpj && r.mes === mes
+			);
+
+			const payload = {
+				cnpj,
+				mes,
+				regime,
+				resultado,
+				atualizadoEm: new Date().toISOString()
+			};
+
+			if (idx >= 0) dados[idx] = payload;
+			  else dados.push(payload);
+
+			  localStorage.setItem('resultadosImpostos', JSON.stringify(dados));
+		}
+		
+		function salvarResultadoImposto(novoResultado) {
+		  let resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+
+		  // Remove cálculo anterior do mesmo mês (recalcular)
+		  resultados = resultados.filter(r =>
+			!(r.cnpj === novoResultado.cnpj && r.mes === novoResultado.mes)
+		  );
+
+		  resultados.push(novoResultado);
+
+		  localStorage.setItem('resultadosImpostos', JSON.stringify(resultados));
 		}
 
-		// Função para calcular RBT12 (Receita Bruta Total dos últimos 12 meses)
-		function calcularRBT12(cnpj, mesReferencia) {
-			const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
+		// FUNÇÃO AUXILIAR: Editar situação por CNPJ
+		function editarSituacaoPorCNPJ(cnpj) {
+			const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
+			const situacao = situacoes.find(s => s.cnpjEmpresa === cnpj);
 			
-			// Converter mesReferencia para objeto Date
-			const [anoRef, mesRef] = mesReferencia.split('-').map(Number);
-			const dataReferencia = new Date(anoRef, mesRef - 1, 1);
-			
-			// Calcular data de 12 meses atrás
-			const data12MesesAtras = new Date(dataReferencia);
-			data12MesesAtras.setMonth(data12MesesAtras.getMonth() - 11); // 11 meses para trás + mês atual = 12 meses
-			
-			let rbt12 = 0;
-			
-			faturamentos.forEach(faturamento => {
-				if (faturamento.cnpj === cnpj) {
-					const [anoFaturamento, mesFaturamento] = faturamento.mes.split('-').map(Number);
-					const dataFaturamento = new Date(anoFaturamento, mesFaturamento - 1, 1);
-					
-					// Verificar se o faturamento está dentro do período dos últimos 12 meses
-					if (dataFaturamento >= data12MesesAtras && dataFaturamento <= dataReferencia) {
-						rbt12 += parseFloat(faturamento.valor);
-					}
-				}
-			});
-			
-			return rbt12;
+			if (situacao) {
+				editarSituacao(situacao.id);
+				switchTab('situacao');
+			} else {
+				mostrarMensagem('Crie uma situação tributária para esta empresa primeiro.', 'error');
+				switchTab('situacao');
+			}
 		}
+		
+		function diagnosticarEmpresa(cnpj, mes) {
+			console.log('=== DIAGNÓSTICO EMPRESA ===');
+			
+			const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
+			const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+			const clientes = JSON.parse(localStorage.getItem('clientes') || []);
+			
+			const cliente = clientes.find(c => c.cnpj === cnpj);
+			console.log('Cliente:', cliente?.nomeFantasia);
+			
+			const situacao = buscarSituacaoAtual(cnpj, mes);
+			console.log('Situação:', situacao);
+			
+			const faturamento = faturamentos.find(f => f.cnpj === cnpj && f.mes === mes);
+			console.log('Faturamento:', faturamento);
+			
+			if (situacao && situacao.regrasSimples) {
+				console.log('Anexos cadastrados:', situacao.regrasSimples.anexos);
+			}
+			
+			if (faturamento && faturamento.segregacao) {
+				console.log('Anexos no faturamento:', Object.keys(faturamento.segregacao));
+			}
+			
+			console.log('=== FIM DIAGNÓSTICO ===');
+		}
+
+		// Função auxiliar para RBT12 (Receita Bruta Total dos 12 meses ANTERIORES)
+		function calcularRBT12(cnpj, mesReferencia) {
+			const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+			
+            // RBT12 considera os 12 meses ANTERIORES ao período de apuração (LC 123/2006)
+			const dataLimite = new Date(mesReferencia + '-01');
+			dataLimite.setMonth(dataLimite.getMonth() - 12);
+			
+			return faturamentos
+				.filter(f => f.cnpj === cnpj)
+				.filter(f => f.mes < mesReferencia && new Date(f.mes + '-01') >= dataLimite)
+				.reduce((total, f) => total + parseFloat(f.valor || 0), 0);
+		}
+        
+        // Helper para labels
+        function formatarLabelTipo(tipo) {
+            const labels = {
+                'comST': 'Com Substituição Tributária',
+                'semST': 'Sem Substituição Tributária',
+                'monofasico': 'Monofásico (PIS/COFINS Zero)',
+                'comRetencao': 'Com Retenção',
+                'semRetencao': 'Sem Retenção',
+                'padrao': 'Receita Padrão'
+            };
+            return labels[tipo] || tipo;
+        }
 
         // --- 7. UTILITÁRIOS GERAIS ---
         function atualizarSelects() {
@@ -2696,7 +4021,7 @@
 				agrupadas[chave].total += parseFloat(faturamento.valor);
 				agrupadas[chave].registros.push(faturamento);
 			});
-			
+								
 			return Object.values(agrupadas).map(item => ({
 				...item,
 				media: item.total / item.quantidade
@@ -3316,7 +4641,7 @@
 				ICMS: parseFloat(document.getElementById('repICMS').value) || 0,
 				ISS: parseFloat(document.getElementById('repISS').value) || 0,
 				IPI: parseFloat(document.getElementById('repIPI').value) || 0,
-				INSS: parseFloat(document.getElementById('repINSS').value) || 0
+//				INSS: parseFloat(document.getElementById('repINSS').value) || 0
 			};
 			
 			// Validar soma da repartição
