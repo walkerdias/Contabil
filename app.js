@@ -505,41 +505,75 @@
 		// --- SIMPLES NACIONAL — RESUMO REAL (SEM RECÁLCULO)		
 		// --- FUNÇÃO PRINCIPAL – CARREGAR RESUMO
 		function carregarResumo() {
-		  const cnpj = document.getElementById('resumoEmpresa').value;
-		  const ano  = document.getElementById('resumoAno').value;
+		  const cnpj = document.getElementById('resumoEmpresa')?.value;
+		  const ano  = document.getElementById('resumoAno')?.value;
 
 		  if (!cnpj || !ano) {
 			mostrarMensagem('Selecione empresa e ano.', 'warning');
 			return;
 		  }
 
-		  // 🔹 Limpa tabela sempre
-		  document.querySelector('#tabelaResumo thead').innerHTML = '';
-		  document.querySelector('#tabelaResumo tbody').innerHTML = '';
-		  document.querySelector('#tabelaResumo tfoot').innerHTML = '';
+		  // 🔹 Limpa completamente o resumo antes de montar novamente
+		  limparResumo();
 
-		  // 🔹 Dados da empresa (somente visual)
-		  renderDadosEmpresa(cnpj, ano);
+		  // 🔹 Carrega faturamentos (fonte primária)
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
 
-		  // 🔹 RESULTADOS OFICIAIS
-		  const resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+		  const faturamentosAno = faturamentos.filter(f =>
+			f.cnpj === cnpj && f.mes.startsWith(ano)
+		  );
 
-		  const resultadosAno = resultados
-			.filter(r =>
-			  r.cnpj === cnpj &&
-			  r.mes.startsWith(ano)
-			)
-			.sort((a, b) => a.mes.localeCompare(b.mes));
-
-		  if (!resultadosAno.length) {
-			mostrarMensagem('Nenhum imposto calculado para este ano.', 'info');
+		  if (!faturamentosAno.length) {
+			mostrarMensagem('Nenhum faturamento encontrado para este ano.', 'warning');
 			return;
 		  }
 
-		  // 🔹 Montagem da tabela
-		  const colunas = montarTheadResumo(resultadosAno);
-		  montarTbodyResumo(cnpj, ano, resultadosAno, colunas);
-		  montarTfootResumo(resultadosAno, colunas);
+		  // 🔹 Carrega resultados de impostos (pode estar vazio)
+		  const resultadosImpostos = JSON.parse(
+			localStorage.getItem('resultadosImpostos')
+		  ) || [];
+
+		  const resultadosAno = resultadosImpostos.filter(r =>
+			r.cnpj === cnpj && r.mes.startsWith(ano)
+		  );
+
+		  /*
+			🔹 Fonte unificada do resumo
+			- Sempre existe faturamento
+			- Imposto pode ou não existir
+		  */
+		  const dadosResumo = faturamentosAno.map(fat => {
+			const resultadoMes = resultadosAno.find(r => r.mes === fat.mes);
+
+			return {
+			  mes: fat.mes,
+			  cnpj: fat.cnpj,
+			  faturamento: fat,              // sempre existe
+			  resultado: resultadoMes || null // pode ser null
+			};
+		  });
+
+		  // 🔹 Renderiza dados da empresa (topo)
+		  renderDadosEmpresa(cnpj, ano);
+
+		  // 🔹 Montagem da tabela (único fluxo)
+		  const colunasResumo = montarTheadResumo(dadosResumo);
+
+		  montarTbodyResumo(dadosResumo, colunasResumo);
+
+		  montarTfootResumo(dadosResumo, colunasResumo);
+
+		  // 🔹 Feedback visual
+		  const mesesSemImposto = dadosResumo.filter(d => !d.resultado).length;
+
+		  if (mesesSemImposto > 0) {
+			mostrarMensagem(
+			  `${mesesSemImposto} mês(es) ainda sem imposto calculado.`,
+			  'warning'
+			);
+		  } else {
+			mostrarMensagem('Resumo carregado com todos os impostos calculados.', 'success');
+		  }
 		}
 		
 		// --- TABELA 1 – DADOS DA EMPRESA
@@ -937,77 +971,43 @@
 		  semRetencao: 'Sem Ret.'
 		};
 		
-		function montarTheadResumoSegregado(dadosResumo) {
+		function montarTheadResumo(dadosResumo) {
 		  const thead = document.querySelector('#tabelaResumo thead');
+		  thead.innerHTML = '';
+
 		  const colunasDinamicas = new Set();
 
-		  // 🔹 Descobrir todas as combinações Anexo + Tipo usadas no ano
-		  dadosResumo.forEach(mes => {
-			Object.entries(mes.segregacao || {}).forEach(([anexo, tipos]) => {
+		  // 🔹 Descobrir todas as combinações Anexo + Tipo (nível 2)
+		  dadosResumo.forEach(d => {
+			const seg = d.faturamento?.segregacao || {};
+			Object.entries(seg).forEach(([anexo, tipos]) => {
 			  Object.keys(tipos).forEach(tipo => {
 				colunasDinamicas.add(`${anexo}|${tipo}`);
 			  });
 			});
 		  });
 
-		  // 🔹 Cabeçalho
 		  let html = `
 			<tr>
 			  <th>Mês</th>
-			  <th>Fat. Mês</th>
+			  <th>Faturamento</th>
 		  `;
 
-		  colunasDinamicas.forEach(key => {
+		  [...colunasDinamicas].sort().forEach(key => {
 			const [anexo, tipo] = key.split('|');
-			html += `<th>${anexo} - ${MAPA_TIPOS[tipo] || tipo}</th>`;
+			html += `<th>Anexo ${anexo}<br>${MAPA_TIPOS[tipo] || formatarTipo(tipo)}</th>`;
 		  });
 
 		  html += `
-			  <th>RBT12</th>
 			  <th>Imposto Total</th>
 			</tr>
 		  `;
 
 		  thead.innerHTML = html;
 
-		  // retorna ordem das colunas para o tbody
-		  return Array.from(colunasDinamicas);
-		}
-		
-		function montarTheadResumo(resultadosAno) {
-		  const thead = document.querySelector('#tabelaResumo thead');
-		  thead.innerHTML = '';
-
-		  const colunasDinamicas = new Set();
-
-		  resultadosAno.forEach(r => {
-			if (!r.anexos) return;
-
-			Object.entries(r.anexos).forEach(([anexo, tipos]) => {
-			  Object.keys(tipos).forEach(tipo => {
-				colunasDinamicas.add(`${anexo}_${tipo}`);
-			  });
-			});
-		  });
-
-		  const colunas = Array.from(colunasDinamicas).sort();
-
-		  let html = '<tr>';
-		  html += '<th>Mês</th>';
-		  html += '<th>RBT12</th>';
-		  html += '<th>Fator R (%)</th>';
-
-		  colunas.forEach(c => {
-			const [anexo, tipo] = c.split('_');
-			html += `<th>Anexo ${anexo}<br>${formatarTipo(tipo)}</th>`;
-		  });
-
-		  html += '<th>Total Imposto</th>';
-		  html += '</tr>';
-
-		  thead.innerHTML = html;
-		  return colunas;
-		}
+		  // 🔹 ordem das colunas para tbody / tfoot
+		  return [...colunasDinamicas].sort();
+		}	
 		
 		// -- Função auxiliar
 		function formatarTipo(tipo) {
@@ -1021,75 +1021,42 @@
 		  return mapa[tipo] || tipo;
 		}
 		
-		function montarTbodyResumoSegregado(cnpj, ano) {
-		  const dadosResumo = montarResumoAno(cnpj, ano);
+		function montarTbodyResumo(dadosResumo, colunas) {
 		  const tbody = document.querySelector('#tabelaResumo tbody');
 		  tbody.innerHTML = '';
 
-		  const colunas = montarTheadResumoSegregado(dadosResumo);
-
-		  dadosResumo.forEach(r => {
-			const tr = document.createElement('tr');
-
-			let html = `
-			  <td>${formatarMesAno(r.mes)}</td>
-			  <td>${formatarMoeda(r.valorMes)}</td>
-			`;
-
-			// 🔹 Colunas dinâmicas por anexo/tipo
-			colunas.forEach(key => {
-			  const [anexo, tipo] = key.split('|');
-			  const valor =
-				r.segregacao?.[anexo]?.[tipo] || 0;
-			  html += `<td>${formatarMoeda(valor)}</td>`;
-			});
-
-			html += `
-			  <td>${formatarMoeda(r.rbt12)}</td>
-			  <td class="font-bold">${formatarMoeda(r.impostoTotal)}</td>
-			`;
-
-			tr.innerHTML = html;
-			tbody.appendChild(tr);
-		  });
-		}
-		
-		function montarTbodyResumo(cnpj, ano, resultadosAno, colunas) {
-		  const tbody = document.querySelector('#tabelaResumo tbody');
-		  tbody.innerHTML = '';
-
-		  resultadosAno
+		  dadosResumo
 			.sort((a, b) => a.mes.localeCompare(b.mes))
-			.forEach(r => {
-			  let html = '<tr>';
+			.forEach(d => {
+			  const tr = document.createElement('tr');
 
-			  html += `<td>${formatarMesAno(r.mes)}</td>`;
-			  html += `<td>${formatarMoeda(r.rbt12 || 0)}</td>`;
-			  html += `<td>${(r.fatorR * 100).toFixed(2)}%</td>`;
+			  colunas.forEach(col => {
+				const td = document.createElement('td');
 
-			  colunas.forEach(c => {
-				const [anexo, tipo] = c.split('_');
-				const dado = r.anexos?.[anexo]?.[tipo];
-
-				if (dado) {
-				  html += `<td>
-					<div>${formatarMoeda(dado.imposto)}</div>
-					<small class="text-gray-500">
-					  ${((dado.aliquota || 0) * 100).toFixed(2)}%
-					  ${dado.anexoCalculo && dado.anexoCalculo !== anexo
-						? `→ ${dado.anexoCalculo}`
-						: ''}
-					</small>
-				  </td>`;
-				} else {
-				  html += '<td>—</td>';
+				if (col.key === 'mes') {
+				  td.textContent = formatarMesAno(d.mes);
 				}
+
+				else if (col.key === 'faturamentoTotal') {
+				  td.textContent = formatarMoeda(d.faturamento.valor);
+				}
+
+				else if (col.key === 'impostoTotal') {
+				  const total =
+					d.resultado?.resultado?.totalImposto || 0;
+				  td.textContent = formatarMoeda(total);
+				}
+
+				else {
+				  const [anexo, tipo] = col.split('|');
+				  const valor = d.faturamento?.segregacao?.[anexo]?.[tipo] || 0;
+				  td.textContent = valor > 0 ? formatarMoeda(valor) : '-';
+				}
+
+				tr.appendChild(td);
 			  });
 
-			  html += `<td class="font-bold">${formatarMoeda(r.totalImposto || 0)}</td>`;
-			  html += '</tr>';
-
-			  tbody.insertAdjacentHTML('beforeend', html);
+			  tbody.appendChild(tr);
 			});
 		}
 		
@@ -1125,39 +1092,40 @@
 		  return '';
 		}
 		
-		function montarTfootResumo(resultadosAno, colunas) {
+		function montarTfootResumo(dadosResumo, colunas) {
 		  const tfoot = document.querySelector('#tabelaResumo tfoot');
 		  tfoot.innerHTML = '';
 
-		  const totaisColunas = {};
-		  let totalGeral = 0;
+		  const totais = {};
+		  colunas.forEach(c => totais[c] = 0);
 
-		  colunas.forEach(c => totaisColunas[c] = 0);
+		  let totalFaturamento = 0;
+		  let totalImposto = 0;
 
-		  resultadosAno.forEach(r => {
-			totalGeral += r.totalImposto || 0;
+		  dadosResumo.forEach(d => {
+			totalFaturamento += d.faturamento?.valor || 0;
+			totalImposto += d.impostoTotal || 0;
 
 			colunas.forEach(c => {
-			  const [anexo, tipo] = c.split('_');
-			  const dado = r.anexos?.[anexo]?.[tipo];
-			  if (dado?.imposto) {
-				totaisColunas[c] += dado.imposto;
-			  }
+			  const [anexo, tipo] = c.split('|');
+			  totais[c] += d.faturamento?.segregacao?.[anexo]?.[tipo] || 0;
 			});
 		  });
 
-		  let html = '<tr>';
-		  html += '<th>Total</th>';
-		  html += '<th></th>';
-		  html += '<th></th>';
+		  let html = `
+			<tr class="font-bold bg-gray-100">
+			  <td>Total</td>
+			  <td>${formatarMoeda(totalFaturamento)}</td>
+		  `;
 
 		  colunas.forEach(c => {
-			const total = totaisColunas[c];
-			html += `<th>${total > 0 ? formatarMoeda(total) : '—'}</th>`;
+			html += `<td>${totais[c] > 0 ? formatarMoeda(totais[c]) : '-'}</td>`;
 		  });
 
-		  html += `<th>${formatarMoeda(totalGeral)}</th>`;
-		  html += '</tr>';
+		  html += `
+			  <td>${formatarMoeda(totalImposto)}</td>
+			</tr>
+		  `;
 
 		  tfoot.innerHTML = html;
 		}
