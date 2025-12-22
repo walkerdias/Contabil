@@ -3112,23 +3112,23 @@
 		function encontrarFaixaSimples(anexo, rbt12, fatorR, faixas) {
 		  let anexoCalculo = anexo;
 
-		  // 🔹 Regra do Fator R
+		  // 🔹 Regra do Fator R (somente Anexo V)
 		  if (anexo === 'V' && fatorR >= 0.28) {
 			anexoCalculo = 'III';
 		  }
 
-		  // 🔹 Encontrar tabela do anexo corretamente
-		  const tabelaAnexo = faixas.find(f => f.anexo === anexoCalculo);
+		  // 🔹 Filtrar faixas do anexo correto
+		  const faixasAnexo = faixas.filter(f => f.anexo === anexoCalculo);
 
-		  if (!tabelaAnexo || !Array.isArray(tabelaAnexo.faixas)) {
+		  if (!faixasAnexo.length) {
 			console.error('Faixas disponíveis:', faixas);
-			throw new Error(`Tabela do Anexo ${anexoCalculo} não encontrada`);
+			throw new Error(`Nenhuma faixa encontrada para o Anexo ${anexoCalculo}`);
 		  }
 
 		  // 🔹 Encontrar faixa pelo RBT12
-		  const faixa = tabelaAnexo.faixas.find(f =>
-			rbt12 >= f.limiteInferior &&
-			rbt12 <= f.limiteSuperior
+		  const faixa = faixasAnexo.find(f =>
+			rbt12 >= Number(f.limiteInferior) &&
+			rbt12 <= Number(f.limiteSuperior)
 		  );
 
 		  if (!faixa) {
@@ -3140,9 +3140,9 @@
 		  return {
 			anexoOriginal: anexo,
 			anexoCalculo,
-			faixa: faixa.faixa,
-			aliquota: faixa.aliquota,
-			deducao: faixa.deducao
+			nomeFaixa: faixa.nome,
+			aliquota: Number(faixa.aliquota) / 100, // 🔴 importante: converter %
+			deducao: Number(faixa.deducao || 0)
 		  };
 		}
 		// 3️⃣ cálculo por anexo
