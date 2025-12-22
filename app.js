@@ -506,32 +506,40 @@
 		// --- FUNÇÃO PRINCIPAL – CARREGAR RESUMO
 		function carregarResumo() {
 		  const cnpj = document.getElementById('resumoEmpresa').value;
-		  const ano = document.getElementById('resumoAno').value;
+		  const ano  = document.getElementById('resumoAno').value;
 
 		  if (!cnpj || !ano) {
 			mostrarMensagem('Selecione empresa e ano.', 'warning');
 			return;
 		  }
 
-		  // Limpar tudo antes de renderizar
-		  limparResumo();
+		  // 🔹 Limpa tabela sempre
+		  document.querySelector('#tabelaResumo thead').innerHTML = '';
+		  document.querySelector('#tabelaResumo tbody').innerHTML = '';
+		  document.querySelector('#tabelaResumo tfoot').innerHTML = '';
 
-		  // Renderizar dados da empresa (tabela 1)
+		  // 🔹 Dados da empresa (somente visual)
 		  renderDadosEmpresa(cnpj, ano);
 
-		  // Buscar resultados do ano
-		  const resultadosAno = obterResultadosAno(cnpj, ano);
+		  // 🔹 RESULTADOS OFICIAIS
+		  const resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+
+		  const resultadosAno = resultados
+			.filter(r =>
+			  r.cnpj === cnpj &&
+			  r.mes.startsWith(ano)
+			)
+			.sort((a, b) => a.mes.localeCompare(b.mes));
 
 		  if (!resultadosAno.length) {
-			mostrarMensagem('Nenhum mês calculado para este ano.', 'warning');
-			limparTabelaResumo();
+			mostrarMensagem('Nenhum imposto calculado para este ano.', 'info');
 			return;
 		  }
 
-		  // 🔹 NOVA ARQUITETURA DE RESUMO
-		  const colunasResumo = montarTheadResumo(resultadosAno);
-		  montarTbodyResumo(cnpj, ano, resultadosAno, colunasResumo);
-		  montarTfootResumo(resultadosAno, colunasResumo);
+		  // 🔹 Montagem da tabela
+		  const colunas = montarTheadResumo(resultadosAno);
+		  montarTbodyResumo(cnpj, ano, resultadosAno, colunas);
+		  montarTfootResumo(resultadosAno, colunas);
 		}
 		
 		// --- TABELA 1 – DADOS DA EMPRESA
@@ -738,25 +746,131 @@
 		function obterResultadoMes(cnpj, mes) {
 		  return obterTodosResultadosImpostos()
 			.find(r => r.cnpj === cnpj && r.mes === mes);
+		}		
+			
+		function calcularImpostosRestantes(cnpj, ano) {
+		  const mesesPendentes = obterMesesPendentes(cnpj, ano);
+		  if (!mesesPendentes.length) {
+			mostrarMensagem('Nenhum imposto pendente para este ano.', 'info');
+			return;
+		  }
+
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  const faixas = JSON.parse(localStorage.getItem('paramFaixasSimples') || '[]');
+
+		  mesesPendentes.forEach(mes => {
+			const faturamentoMes = faturamentos.find(f =>
+			  f.cnpj === cnpj && f.mes === mes
+			);
+
+			if (!faturamentoMes) return;
+
+			// 1️⃣ RBT12
+			const rbt12 = calcularRBT12(cnpj, mes);
+
+			// 2️⃣ Fator R
+			const fatorR = rbt12 > 0
+			  ? (faturamentoMes.massaSalarial || 0) / rbt12
+			  : 0;
+
+			const resultado = {
+			  cnpj,
+			  mes,
+			  regime: 'simples',
+			  rbt12,
+			  fatorR,
+			  anexos: {},
+			  totalImposto: 0,
+			  dataCalculo: new Date().toISOString()
+			};
+
+			// 3️⃣ Calcular por anexo / tipo
+			Object.entries(faturamentoMes.segregacao || {}).forEach(([anexo, tipos]) => {
+			  Object.entries(tipos).forEach(([tipo, valorFaturado]) => {
+				const valor = Number(valorFaturado || 0);
+				if (valor <= 0) return;
+
+				const faixa = encontrarFaixaSimples(anexo, rbt12, fatorR, faixas);
+				const aliquota = faixa.aliquota;
+				const imposto = valor * aliquota;
+
+				if (!resultado.anexos[anexo]) {
+				  resultado.anexos[anexo] = {};
+				}
+
+				resultado.anexos[anexo][tipo] = {
+				  faturamento: valor,
+				  aliquota,
+				  imposto,
+				  anexoCalculo: faixa.anexoCalculo
+				};
+
+				resultado.totalImposto += imposto;
+			  });
+			});
+
+			// 4️⃣ Salvar resultado oficial
+			salvarResultadoImposto(resultado);
+		  });
+
+		  mostrarMensagem('Impostos pendentes calculados com sucesso.', 'success');
+
+		  // atualizar resumo automaticamente
+		  carregarResumo();
 		}
 		
-		function obterMesesFaltantes(cnpj, ano) {
-			const resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+		function obterMesesPendentes(cnpj, ano) {
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+		  const resultados = JSON.parse(localStorage.getItem('resultadosImpostos') || '[]');
 
-			const mesesCalculados = resultados
-				.filter(r => r.cnpj === cnpj && r.mes.startsWith(ano))
-				.map(r => r.mes);
+		  // meses com faturamento no ano
+		  const mesesComFaturamento = faturamentos
+			.filter(f => f.cnpj === cnpj && f.mes.startsWith(ano))
+			.map(f => f.mes);
 
-			const faltantes = [];
+		  // meses já calculados
+		  const mesesCalculados = resultados
+			.filter(r => r.cnpj === cnpj && r.mes.startsWith(ano))
+			.map(r => r.mes);
 
-			for (let m = 1; m <= 12; m++) {
-				const mes = `${ano}-${String(m).padStart(2,'0')}`;
-				if (!mesesCalculados.includes(mes)) {
-				  faltantes.push(mes);
-				}
-			}
+		  // diferença
+		  return mesesComFaturamento
+			.filter(mes => !mesesCalculados.includes(mes))
+			.sort(); // ordem cronológica
+		}
+		
+		function obterFaturamentoMes(cnpj, mes) {
+			const dados = JSON.parse(localStorage.getItem('faturamento') || '[]');
+			return dados.find(f => f.cnpj === cnpj && f.mes === mes) || null;
+		}
+		
+		function obterResultadoImpostoMes(cnpj, mes) {
+			const dados = JSON.parse(localStorage.getItem('resultadosImpostos') || '[]');
+			return dados.find(r => r.cnpj === cnpj && r.mes === mes) || null;
+		}
+		
+		function montarResumoAno(cnpj, ano) {
+		  const meses = Array.from({ length: 12 }, (_, i) =>
+			`${ano}-${String(i + 1).padStart(2, '0')}`
+		  );
 
-			return faltantes;
+		  return meses.map(mes => {
+			const faturamento = obterFaturamentoMes(cnpj, mes);
+			const imposto = obterResultadoImpostoMes(cnpj, mes);
+
+			const valorMes = faturamento ? faturamento.valor : 0;
+			const rbt12 = calcularRBT12(cnpj, mes);
+			const impostoTotal = imposto ? imposto.impostoTotal || 0 : 0;
+
+			return {
+			  mes,
+			  valorMes,
+			  rbt12,
+			  impostoTotal,
+			  segregacao: faturamento?.segregacao || {},
+			  massaSalarial: faturamento?.massaSalarial || 0
+			};
+		  });
 		}
 		
 		function calcularMesesFaltantes() {
@@ -769,7 +883,7 @@
 				return;
 			}
 
-			const meses = obterMesesFaltantes(cnpj, ano);
+			const meses = obterMesesPendentes(cnpj, ano);
 
 			if (!meses.length) {
 				mostrarMensagem('Todos os meses já estão calculados.', 'info');
@@ -815,77 +929,84 @@
 		  localStorage.setItem('resultadosImpostos', JSON.stringify(filtrados));
 		}
 		
+		const MAPA_TIPOS = {
+		  comST: 'Com ST',
+		  semST: 'Sem ST',
+		  monofasico: 'Monofás.',
+		  comRetencao: 'Com Ret.',
+		  semRetencao: 'Sem Ret.'
+		};
+		
+		function montarTheadResumoSegregado(dadosResumo) {
+		  const thead = document.querySelector('#tabelaResumo thead');
+		  const colunasDinamicas = new Set();
+
+		  // 🔹 Descobrir todas as combinações Anexo + Tipo usadas no ano
+		  dadosResumo.forEach(mes => {
+			Object.entries(mes.segregacao || {}).forEach(([anexo, tipos]) => {
+			  Object.keys(tipos).forEach(tipo => {
+				colunasDinamicas.add(`${anexo}|${tipo}`);
+			  });
+			});
+		  });
+
+		  // 🔹 Cabeçalho
+		  let html = `
+			<tr>
+			  <th>Mês</th>
+			  <th>Fat. Mês</th>
+		  `;
+
+		  colunasDinamicas.forEach(key => {
+			const [anexo, tipo] = key.split('|');
+			html += `<th>${anexo} - ${MAPA_TIPOS[tipo] || tipo}</th>`;
+		  });
+
+		  html += `
+			  <th>RBT12</th>
+			  <th>Imposto Total</th>
+			</tr>
+		  `;
+
+		  thead.innerHTML = html;
+
+		  // retorna ordem das colunas para o tbody
+		  return Array.from(colunasDinamicas);
+		}
+		
 		function montarTheadResumo(resultadosAno) {
 		  const thead = document.querySelector('#tabelaResumo thead');
 		  thead.innerHTML = '';
 
-		  const colunasFixas = [
-			{ key: 'mes', label: 'Mês' },
-			{ key: 'faturamentoMes', label: 'Fat. Mês' },
-			{ key: 'rbt12', label: 'RBT12' }
-		  ];
-
-		  const colunasDinamicas = [];
-		  const colunasExtras = new Set();
+		  const colunasDinamicas = new Set();
 
 		  resultadosAno.forEach(r => {
-			const anexos = r.resultado?.anexos;
-			if (!anexos) return;
+			if (!r.anexos) return;
 
-			Object.entries(anexos).forEach(([anexo, dados]) => {
-			  // Faturamento segregado
-			  Object.keys(dados.faturamento || {}).forEach(tipo => {
-				colunasExtras.add(`${anexo}_fat_${tipo}`);
+			Object.entries(r.anexos).forEach(([anexo, tipos]) => {
+			  Object.keys(tipos).forEach(tipo => {
+				colunasDinamicas.add(`${anexo}_${tipo}`);
 			  });
-
-			  // Imposto segregado
-			  Object.keys(dados.imposto || {}).forEach(tipo => {
-				colunasExtras.add(`${anexo}_imp_${tipo}`);
-			  });
-
-			  // Campos exclusivos do Anexo V
-			  if (anexo === 'V') {
-				if (dados.fatorR !== undefined) colunasExtras.add('V_fatorR');
-				if (dados.salarioMes !== undefined) colunasExtras.add('V_salario');
-			  }
 			});
 		  });
 
-		  colunasExtras.forEach(key => {
-			const [anexo, tipo, sub] = key.split('_');
+		  const colunas = Array.from(colunasDinamicas).sort();
 
-			let label = key;
+		  let html = '<tr>';
+		  html += '<th>Mês</th>';
+		  html += '<th>RBT12</th>';
+		  html += '<th>Fator R (%)</th>';
 
-			if (tipo === 'fat') {
-			  label = `${anexo} Fat. ${formatarTipo(sub)}`;
-			} else if (tipo === 'imp') {
-			  label = `${anexo} Imp. ${formatarTipo(sub)}`;
-			} else if (key === 'V_fatorR') {
-			  label = 'V Fator R %';
-			} else if (key === 'V_salario') {
-			  label = 'V Salário';
-			}
-
-			colunasDinamicas.push({ key, label });
+		  colunas.forEach(c => {
+			const [anexo, tipo] = c.split('_');
+			html += `<th>Anexo ${anexo}<br>${formatarTipo(tipo)}</th>`;
 		  });
 
-		  const colunasFinais = [
-			...colunasFixas,
-			...colunasDinamicas,
-			{ key: 'impostoTotal', label: 'Imposto Total' }
-		  ];
+		  html += '<th>Total Imposto</th>';
+		  html += '</tr>';
 
-		  const tr = document.createElement('tr');
-		  colunasFinais.forEach(col => {
-			const th = document.createElement('th');
-			th.textContent = col.label;
-			th.className = 'px-3 py-2 text-sm text-center font-semibold';
-			tr.appendChild(th);
-		  });
-
-		  thead.appendChild(tr);
-
-		  return colunasFinais;
+		  thead.innerHTML = html;
+		  return colunas;
 		}
 		
 		// -- Função auxiliar
@@ -900,49 +1021,76 @@
 		  return mapa[tipo] || tipo;
 		}
 		
-		function montarTbodyResumo(cnpj, ano, resultadosAno, colunasResumo) {
+		function montarTbodyResumoSegregado(cnpj, ano) {
+		  const dadosResumo = montarResumoAno(cnpj, ano);
 		  const tbody = document.querySelector('#tabelaResumo tbody');
 		  tbody.innerHTML = '';
 
-		  resultadosAno.forEach(r => {
+		  const colunas = montarTheadResumoSegregado(dadosResumo);
+
+		  dadosResumo.forEach(r => {
 			const tr = document.createElement('tr');
 
-			colunasResumo.forEach(col => {
-			  const td = document.createElement('td');
-			  td.className = 'px-3 py-2 text-sm text-right';
+			let html = `
+			  <td>${formatarMesAno(r.mes)}</td>
+			  <td>${formatarMoeda(r.valorMes)}</td>
+			`;
 
-			  let valor = '';
-
-			  switch (col.key) {
-				case 'mes':
-				  valor = formatarMesAno(r.mes);
-				  td.className = 'px-3 py-2 text-sm text-left';
-				  break;
-
-				case 'faturamentoMes':
-				  valor = formatarMoeda(r.resultado.faturamentoMes);
-				  break;
-
-				case 'rbt12':
-				  valor = formatarMoeda(r.resultado.rbt12);
-				  break;
-
-				case 'impostoTotal':
-				  valor = formatarMoeda(r.resultado.impostoTotal);
-				  td.classList.add('font-bold');
-				  break;
-
-				default:
-				  valor = obterValorColunaDinamica(r, col.key);
-				  break;
-			  }
-
-			  td.textContent = valor ?? '';
-			  tr.appendChild(td);
+			// 🔹 Colunas dinâmicas por anexo/tipo
+			colunas.forEach(key => {
+			  const [anexo, tipo] = key.split('|');
+			  const valor =
+				r.segregacao?.[anexo]?.[tipo] || 0;
+			  html += `<td>${formatarMoeda(valor)}</td>`;
 			});
 
+			html += `
+			  <td>${formatarMoeda(r.rbt12)}</td>
+			  <td class="font-bold">${formatarMoeda(r.impostoTotal)}</td>
+			`;
+
+			tr.innerHTML = html;
 			tbody.appendChild(tr);
 		  });
+		}
+		
+		function montarTbodyResumo(cnpj, ano, resultadosAno, colunas) {
+		  const tbody = document.querySelector('#tabelaResumo tbody');
+		  tbody.innerHTML = '';
+
+		  resultadosAno
+			.sort((a, b) => a.mes.localeCompare(b.mes))
+			.forEach(r => {
+			  let html = '<tr>';
+
+			  html += `<td>${formatarMesAno(r.mes)}</td>`;
+			  html += `<td>${formatarMoeda(r.rbt12 || 0)}</td>`;
+			  html += `<td>${(r.fatorR * 100).toFixed(2)}%</td>`;
+
+			  colunas.forEach(c => {
+				const [anexo, tipo] = c.split('_');
+				const dado = r.anexos?.[anexo]?.[tipo];
+
+				if (dado) {
+				  html += `<td>
+					<div>${formatarMoeda(dado.imposto)}</div>
+					<small class="text-gray-500">
+					  ${((dado.aliquota || 0) * 100).toFixed(2)}%
+					  ${dado.anexoCalculo && dado.anexoCalculo !== anexo
+						? `→ ${dado.anexoCalculo}`
+						: ''}
+					</small>
+				  </td>`;
+				} else {
+				  html += '<td>—</td>';
+				}
+			  });
+
+			  html += `<td class="font-bold">${formatarMoeda(r.totalImposto || 0)}</td>`;
+			  html += '</tr>';
+
+			  tbody.insertAdjacentHTML('beforeend', html);
+			});
 		}
 		
 		// --- Função auxiliar (leitura segura)
@@ -977,71 +1125,41 @@
 		  return '';
 		}
 		
-		function montarTfootResumo(resultadosAno, colunasResumo) {
+		function montarTfootResumo(resultadosAno, colunas) {
 		  const tfoot = document.querySelector('#tabelaResumo tfoot');
 		  tfoot.innerHTML = '';
 
-		  if (!resultadosAno.length) return;
+		  const totaisColunas = {};
+		  let totalGeral = 0;
 
-		  const totais = {};
+		  colunas.forEach(c => totaisColunas[c] = 0);
 
-		  // Inicializa totais
-		  colunasResumo.forEach(col => {
-			totais[col.key] = 0;
-		  });
-
-		  // Acumula valores
 		  resultadosAno.forEach(r => {
-			colunasResumo.forEach(col => {
-			  switch (col.key) {
-				case 'faturamentoMes':
-				  totais[col.key] += Number(r.resultado.faturamentoMes || 0);
-				  break;
+			totalGeral += r.totalImposto || 0;
 
-				case 'impostoTotal':
-				  totais[col.key] += Number(r.resultado.impostoTotal || 0);
-				  break;
-
-				case 'rbt12':
-				  // NÃO soma RBT12 (informativo)
-				  break;
-
-				default:
-				  // Somar apenas colunas dinâmicas numéricas
-				  const valor = obterValorNumericoColuna(r, col.key);
-				  if (typeof valor === 'number') {
-					totais[col.key] += valor;
-				  }
-				  break;
+			colunas.forEach(c => {
+			  const [anexo, tipo] = c.split('_');
+			  const dado = r.anexos?.[anexo]?.[tipo];
+			  if (dado?.imposto) {
+				totaisColunas[c] += dado.imposto;
 			  }
 			});
 		  });
 
-		  // Montar linha do rodapé
-		  const tr = document.createElement('tr');
-		  tr.className = 'bg-gray-100 font-semibold';
+		  let html = '<tr>';
+		  html += '<th>Total</th>';
+		  html += '<th></th>';
+		  html += '<th></th>';
 
-		  colunasResumo.forEach(col => {
-			const td = document.createElement('td');
-			td.className = 'px-3 py-2 text-sm text-right';
-
-			let valor = '';
-
-			if (col.key === 'mes') {
-			  valor = 'TOTAL DO ANO';
-			  td.className = 'px-3 py-2 text-sm text-left font-bold';
-			} else if (col.key === 'faturamentoMes' || col.key === 'impostoTotal') {
-			  valor = formatarMoeda(totais[col.key]);
-			  td.classList.add('font-bold');
-			} else if (totais[col.key] > 0) {
-			  valor = formatarMoeda(totais[col.key]);
-			}
-
-			td.textContent = valor;
-			tr.appendChild(td);
+		  colunas.forEach(c => {
+			const total = totaisColunas[c];
+			html += `<th>${total > 0 ? formatarMoeda(total) : '—'}</th>`;
 		  });
 
-		  tfoot.appendChild(tr);
+		  html += `<th>${formatarMoeda(totalGeral)}</th>`;
+		  html += '</tr>';
+
+		  tfoot.innerHTML = html;
 		}
 		
 		function obterValorNumericoColuna(r, chave) {
@@ -2398,7 +2516,7 @@
 
 		  // 🔹 Carregar anexos e depois preencher valores
 		  carregarAnexosFaturamento().then(() => {
-			preencherValoresSegregados(faturamento.segregacao);
+			preencherValoresSegregados(faturamento.segregacao,faturamento.massaSalarial || 0);
 		  });
 
 		  // Flag de edição
@@ -2419,37 +2537,35 @@
 		}
 
 		// === NOVA FUNÇÃO: Preencher valores segregados ===
-		function preencherValoresSegregados(segregacao) {
+		function preencherValoresSegregados(segregacao, massaSalarial = 0) {
 		  if (!segregacao) return;
-		  
-		  // Para cada anexo salvo, preencher os campos correspondentes
+
+		  // 🔹 Preencher valores de faturamento segregado
 		  Object.entries(segregacao).forEach(([anexo, tipos]) => {
 			Object.entries(tipos).forEach(([tipo, valor]) => {
 			  if (valor > 0) {
-				const input = document.querySelector(`input[data-anexo="${anexo}"][data-tipo="${tipo}"]`);
+				const input = document.querySelector(
+				  `input[data-anexo="${anexo}"][data-tipo="${tipo}"]`
+				);
 				if (input) {
 				  input.value = formatarMoeda(valor);
 				}
 			  }
 			});
 		  });
-		  
-		  // Recalcular totais
-		  calcularTotaisFaturamento();
-		  
-		  // Mostrar total
-		  const totalFaturamento = Object.values(segregacao).reduce((sum, tipos) => 
-			sum + Object.values(tipos).reduce((a, b) => a + b, 0), 0
-		  );
-		  //document.getElementById('totalFaturamento').value = formatarMoeda(totalFaturamento);
-		    if (registro.massaSalarial > 0) {
-			  const inputFatorR = document.querySelector(
-				`input[data-tipo="fatorR"]`
-			  );
-			  if (inputFatorR) {
-				inputFatorR.value = formatarMoeda(registro.massaSalarial);
-			  }
+
+		  // 🔹 Preencher massa salarial (campo único)
+		  if (massaSalarial > 0) {
+			const inputSalario = document.querySelector(
+			  `input[data-tipo="salarioMes"]`
+			);
+			if (inputSalario) {
+			  inputSalario.value = formatarMoeda(massaSalarial);
 			}
+		  }
+
+		  // 🔹 Recalcular totais visuais
+		  calcularTotaisFaturamento();
 		}
 		
 		// Calcular Fator R para empresa específica
@@ -2654,10 +2770,11 @@
 			'V': [
 			  { id: 'comRetencao', label: 'Com Retenção ISS' },
 			  { id: 'semRetencao', label: 'Sem Retenção' },
-			  { id: 'fatorR', label: 'Fator R (Registro)' }
+			  { id: 'salarioMes', label: 'Massa Salarial do Mês' }
 			]
-		  };
-		  return tipos[anexo] || [{ id: 'padrao', label: 'Padrão' }];
+			};
+
+		  return tipos[anexo] || [];
 		}
 
 		// ✅ CORRIGIDO: Cálculo com centavos + Fator R excluído
@@ -2676,7 +2793,7 @@
 					valor = parseFloat(valorLimpo) || 0;
 					
 					// ✅ Excluir Fator R do subtotal e total geral
-					if (input.dataset.tipo !== 'fatorR') {
+					if (input.dataset.tipo !== 'salarioMes') {
 						subtotalAnexo += valor;
 					}
 				});
@@ -2717,88 +2834,87 @@
 
 		// === SALVAR FATURAMENTO ATUALIZADO ===
 		function salvarFaturamento(e) {
-			e.preventDefault();
+		  e.preventDefault();
 
-			const cnpj = document.getElementById('cnpjFaturamento').value;
-			const mes = document.getElementById('mesFaturamento').value;
-			const id = document.getElementById('faturamentoId').value;
+		  const cnpj = document.getElementById('cnpjFaturamento').value;
+		  const mes = document.getElementById('mesFaturamento').value;
+		  const id = document.getElementById('faturamentoId').value;
 
-			if (!cnpj || !mes) {
-				mostrarMensagem('Preencha empresa e mês!', 'error');
-				return;
-			}
-		  
-			// 🔎 Carrega todos os faturamentos
-			let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
-			
-			// ✅ Validação de duplicidade (mesmo CNPJ + mês)
-			const duplicado = faturamentos.find(f =>
-				f.cnpj === cnpj &&
-				f.mes  === mes  &&
-				f.id  !== id     // permite atualizar o próprio registro em edição
+		  if (!cnpj || !mes) {
+			mostrarMensagem('Preencha empresa e mês!', 'error');
+			return;
+		  }
+
+		  let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
+
+		  const duplicado = faturamentos.find(f =>
+			f.cnpj === cnpj &&
+			f.mes === mes &&
+			f.id !== id
+		  );
+
+		  if (duplicado) {
+			mostrarMensagem(
+			  'Já existe faturamento para esta empresa e mês. Edite o registro existente.',
+			  'error'
 			);
-
-			if (duplicado) {
-				mostrarMensagem('Já existe faturamento para esta empresa e mês. Edite o registro existente.', 'error');
-				return;
-			}
+			return;
+		  }
 
 		  const segregacao = {};
-		  const fatorRTotal = [];
-		  const salariosMes = [];
-		  const massaSalarialMes = salariosMes.reduce((acc, curr) => acc + curr.valor, 0);
+		  let massaSalarialMes = 0;
 
-		  // percorre todos os cards de anexo
+		  // 🔹 1. CAPTURAR MASSA SALARIAL FORA DOS ANEXOS
+		  document.querySelectorAll('input.moeda-input[data-tipo="salarioMes"]').forEach(input => {
+			const valorTexto = input.value.replace(/[^\d,]/g, '').replace(',', '.');
+			const valor = parseFloat(valorTexto) || 0;
+			massaSalarialMes += valor;
+		  });
+
+		  // 🔹 2. CAPTURAR APENAS FATURAMENTO POR ANEXO
 		  document.querySelectorAll('#camposAnexos .bg-white').forEach(container => {
 			const titulo = container.querySelector('h5')?.textContent || '';
 			const match = titulo.match(/Anexo\s+([IVX]+)/i);
 			if (!match) return;
 
-			const anexo = match[1]; // I, II, III, IV, V
-
-			if (!segregacao[anexo]) {
-			  segregacao[anexo] = {};
-			}
+			const anexo = match[1];
+			const tiposAnexo = {};
 
 			container.querySelectorAll('input.moeda-input').forEach(input => {
-			  const tipo = input.dataset.tipo;         // comST, semST, monofasico, comRetencao, etc.
+			  const tipo = input.dataset.tipo;
+			  if (tipo === 'salarioMes') return; // 🔥 EXCLUSÃO DEFINITIVA
+
 			  const valorTexto = input.value.replace(/[^\d,]/g, '').replace(',', '.');
 			  const valor = parseFloat(valorTexto) || 0;
-
 			  if (valor > 0) {
-				if (tipo === 'salarioMes') {
-				  // só registra, não entra no total
-				  fatorRTotal.push({ anexo, valor });
-				} else {
-				  segregacao[anexo][tipo] = (segregacao[anexo][tipo] || 0) + valor;				
-				}
+				tiposAnexo[tipo] = (tiposAnexo[tipo] || 0) + valor;
 			  }
 			});
+
+			// Só registra anexo se houver faturamento
+			if (Object.keys(tiposAnexo).length > 0) {
+			  segregacao[anexo] = tiposAnexo;
+			}
 		  });
 
-		  // total operacional (sem fator R)
+		  // 🔹 3. TOTAL OPERACIONAL (SOMENTE FATURAMENTO)
 		  const totalOperacional = Object.values(segregacao).reduce(
-			(somaAnexos, objTipos) =>
+			(somaAnexos, tipos) =>
 			  somaAnexos +
-			  Object.values(objTipos).reduce((somaTipos, v) => somaTipos + v, 0),
+			  Object.values(tipos).reduce((a, b) => a + b, 0),
 			0
 		  );
-          
-          // Capturar Fator R Inputado para registro se houver
-        //  const massaSalarialMes = fatorRTotal.length > 0 ? fatorRTotal.reduce((acc, curr) => acc + curr.valor, 0) : 0;
 
 		  const faturamento = {
 			id: id || Date.now().toString(),
 			cnpj,
 			mes,
 			valor: totalOperacional,
-            massaSalarial: massaSalarialMes, // Salvar massa salarial no registro para cálculo do Fator R futuro
-			segregacao,                // agora com todos os anexos
-		//	fatorR: fatorRTotal.length ? fatorRTotal : undefined,
+			massaSalarial: massaSalarialMes,
+			segregacao,
 			dataRegistro: new Date().toISOString()
 		  };
 
-		  //let faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
 		  if (id) {
 			const idx = faturamentos.findIndex(f => f.id === id);
 			if (idx !== -1) faturamentos[idx] = faturamento;
@@ -2807,6 +2923,7 @@
 		  }
 
 		  localStorage.setItem('faturamento', JSON.stringify(faturamentos));
+
 		  mostrarMensagem(
 			`Faturamento ${id ? 'atualizado' : 'registrado'}! ${formatarMoeda(totalOperacional)}`,
 			'success'
@@ -2991,7 +3108,93 @@
 		}
         
         // --- 6. CÁLCULO DE IMPOSTOS (CORREÇÃO DE FUNCIONALIDADE) ---
-        
+        // 2️⃣ regras fiscais
+		function encontrarFaixaSimples(anexo, rbt12, fatorR, faixas) {
+		  let anexoCalculo = anexo;
+
+		  // 🔹 REGRA DO FATOR R (Somente Anexo V)
+		  if (anexo === 'V' && fatorR >= 0.28) {
+			anexoCalculo = 'III';
+		  }
+
+		  const tabela = faixas[anexoCalculo];
+		  if (!tabela || !Array.isArray(tabela)) {
+			throw new Error(`Tabela do Anexo ${anexoCalculo} não encontrada`);
+		  }
+
+		  // 🔹 Encontrar faixa pelo RBT12
+		  const faixa = tabela.find(f =>
+			rbt12 >= f.limiteInferior &&
+			rbt12 <= f.limiteSuperior
+		  );
+
+		  if (!faixa) {
+			throw new Error(
+			  `Faixa não encontrada para Anexo ${anexoCalculo} com RBT12 ${rbt12}`
+			);
+		  }
+
+		  return {
+			anexoOriginal: anexo,
+			anexoCalculo,
+			faixa: faixa.faixa,
+			aliquota: faixa.aliquota,
+			deducao: faixa.deducao
+		  };
+		}
+		// 3️⃣ cálculo por anexo
+		function calcularAnexoDetalhado(
+			  anexo,
+			  dadosAnexoEmpresa,
+			  tiposFaturamento,
+			  rbt12,
+			  fatorR,
+			  mesReferencia,
+			  faixas){
+			  let html = '';
+			  let totalImpostoAnexo = 0;
+
+			  const dadosResumo = {
+				anexo,
+				faturamento: {},
+				imposto: {}
+			  };
+
+			  Object.entries(tiposFaturamento).forEach(([tipo, valorFaturado]) => {
+				const valor = Number(valorFaturado || 0);
+				if (valor <= 0) return;
+
+				const faixa = encontrarFaixaSimples(anexo, rbt12, fatorR, faixas);
+
+				const aliquotaEfetiva =
+				  ((rbt12 * faixa.aliquota) - faixa.deducao) / rbt12;
+
+				const imposto = valor * aliquotaEfetiva;
+
+				totalImpostoAnexo += imposto;
+
+				dadosResumo.faturamento[tipo] = valor;
+				dadosResumo.imposto[tipo] = imposto;
+
+				html += `
+				  <div class="p-3 border rounded mb-2">
+					<strong>Anexo ${faixa.anexoCalculo}</strong><br>
+					Tipo: ${formatarTipo(tipo)}<br>
+					Faturamento: ${formatarMoeda(valor)}<br>
+					Alíquota Efetiva: ${(aliquotaEfetiva * 100).toFixed(2)}%<br>
+					Imposto: ${formatarMoeda(imposto)}
+				  </div>
+				`;
+			  });
+
+			  return {
+				html,
+				total: totalImpostoAnexo,
+				dadosResumo
+			  };
+		}
+		
+		
 		  // Buscar situação tributária vigente para o mês
 		function buscarSituacaoAtual(cnpj, mesReferencia) {
 			const situacoes = JSON.parse(localStorage.getItem('situacoes') || '[]');
@@ -3263,12 +3466,12 @@
 			resultadoParaSalvar.totalImposto = impostoCalculadoTotal;
 
 			// 🔐 SALVAR RESULTADO PARA O RESUMO
-			salvarResultadoImposto(
-				cnpj,
-				mesReferencia,
-				regime,
-				resultadoParaSalvar
-			);
+	//		salvarResultadoImposto(
+	//			cnpj,
+	//			mesReferencia,
+	//			regime,
+	//			resultadoParaSalvar
+	//		);
 
 			// Renderizar resultado
 			resultadoDiv.innerHTML = `
@@ -3291,62 +3494,14 @@
 			resultadoDiv.classList.remove('hidden');
 			resultadoDetalhado.impostoTotal = impostoCalculadoTotal;
 
-			salvarResultadoImposto({
-			  cnpj,
-			  mes: mesReferencia,
-			  regime,
-			  resultado: resultadoDetalhado
-			});
-		}	
-		
-		// FUNÇÃO AUXILIAR: Calcular anexo detalhado
-		function calcularAnexoDetalhado(anexo, dadosAnexoEmpresa, tiposFaturamento, rbt12, fatorR, mesReferencia, faixas) {
-		  let html = '';
-		  let totalImpostoAnexo = 0;
-
-		  const dadosResumo = {
-			anexo,
-			faturamento: {},
-			imposto: {}
-		  };
-
-		  Object.entries(tiposFaturamento).forEach(([tipo, valorFaturado]) => {
-			const valor = Number(valorFaturado || 0);
-			if (valor <= 0) return;
-
-			// 1️⃣ Determinar alíquota
-			const faixa = encontrarFaixaSimples(anexo, rbt12, fatorR, faixas);
-			const aliquota = faixa.aliquota;
-
-			// 2️⃣ Calcular imposto
-			const imposto = valor * aliquota;
-
-			// 3️⃣ Acumular
-			totalImpostoAnexo += imposto;
-
-			// 4️⃣ SALVAR PARA O RESUMO (nível 2)
-			dadosResumo.faturamento[tipo] = valor;
-			dadosResumo.imposto[tipo] = imposto;
-
-			// 5️⃣ HTML (exibição)
-			html += `
-			  <div class="p-3 border rounded mb-2">
-				<strong>Anexo ${anexo}</strong><br>
-				Tipo: ${formatarTipo(tipo)}<br>
-				Faturamento: ${formatarMoeda(valor)}<br>
-				Alíquota: ${(aliquota * 100).toFixed(2)}%<br>
-				Imposto: ${formatarMoeda(imposto)}
-			  </div>
-			`;
-		  });
-
-		  return {
-			html,
-			total: totalImpostoAnexo,
-			dadosResumo
-		  };
-		}
-		
+	//		salvarResultadoImposto({
+	//		  cnpj,
+	//		  mes: mesReferencia,
+	//		  regime,
+	//		  resultado: resultadoDetalhado
+	//		});
+		}			
+			
 		// FUNÇÃO AUXILIAR: Calcular faturamento global (sem segregação)
 		function calcularFaturamentoGlobal(anexo, valorTotal, rbt12, fatorR, mesReferencia, faixas, anexoEmpresa) {
 			// Similar à função anterior, mas para cálculo global
@@ -3359,38 +3514,30 @@
 					<!-- Adicione o cálculo aqui -->
 				</div>
 			`;
-		}
-		
-		function salvarResultadoImposto(cnpj, mes, regime, resultado) {
-			const dados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
+		}		
+			
+		function salvarResultadoImposto(resultado) {
+		  if (!resultado || !resultado.cnpj || !resultado.mes) {
+			throw new Error('Resultado inválido para salvamento');
+		  }
 
-			const idx = dados.findIndex(
-				r => r.cnpj === cnpj && r.mes === mes
-			);
-
-			const payload = {
-				cnpj,
-				mes,
-				regime,
-				resultado,
-				atualizadoEm: new Date().toISOString()
-			};
-
-			if (idx >= 0) dados[idx] = payload;
-			  else dados.push(payload);
-
-			  localStorage.setItem('resultadosImpostos', JSON.stringify(dados));
-		}
-		
-		function salvarResultadoImposto(novoResultado) {
 		  let resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
 
-		  // Remove cálculo anterior do mesmo mês (recalcular)
-		  resultados = resultados.filter(r =>
-			!(r.cnpj === novoResultado.cnpj && r.mes === novoResultado.mes)
+		  const idx = resultados.findIndex(r =>
+			r.cnpj === resultado.cnpj &&
+			r.mes === resultado.mes
 		  );
 
-		  resultados.push(novoResultado);
+		  const payload = {
+			...resultado,
+			atualizadoEm: new Date().toISOString()
+		  };
+
+		  if (idx >= 0) {
+			resultados[idx] = payload; // update
+		  } else {
+			resultados.push(payload);  // insert
+		  }
 
 		  localStorage.setItem('resultadosImpostos', JSON.stringify(resultados));
 		}
