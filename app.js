@@ -3112,18 +3112,21 @@
 		function encontrarFaixaSimples(anexo, rbt12, fatorR, faixas) {
 		  let anexoCalculo = anexo;
 
-		  // 🔹 REGRA DO FATOR R (Somente Anexo V)
+		  // 🔹 Regra do Fator R
 		  if (anexo === 'V' && fatorR >= 0.28) {
 			anexoCalculo = 'III';
 		  }
 
-		  const tabela = faixas[anexoCalculo];
-		  if (!tabela || !Array.isArray(tabela)) {
+		  // 🔹 Encontrar tabela do anexo corretamente
+		  const tabelaAnexo = faixas.find(f => f.anexo === anexoCalculo);
+
+		  if (!tabelaAnexo || !Array.isArray(tabelaAnexo.faixas)) {
+			console.error('Faixas disponíveis:', faixas);
 			throw new Error(`Tabela do Anexo ${anexoCalculo} não encontrada`);
 		  }
 
 		  // 🔹 Encontrar faixa pelo RBT12
-		  const faixa = tabela.find(f =>
+		  const faixa = tabelaAnexo.faixas.find(f =>
 			rbt12 >= f.limiteInferior &&
 			rbt12 <= f.limiteSuperior
 		  );
