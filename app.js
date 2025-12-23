@@ -783,94 +783,35 @@
 		}		
 			
 		function calcularImpostosRestantes(cnpj, ano) {
-		  const mesesPendentes = obterMesesPendentes(cnpj, ano);
-		  if (!mesesPendentes.length) {
-			mostrarMensagem('Nenhum imposto pendente para este ano.', 'info');
-			return;
-		  }
+		  const meses = obterMesesPendentes(cnpj, ano);
 
-		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
-		  const faixas = JSON.parse(localStorage.getItem('paramFaixasSimples') || '[]');
+		  meses.forEach(mes => {
+			document.getElementById('cnpjCalculo').value = cnpj;
+			document.getElementById('mesCalculo').value = mes;
 
-		  mesesPendentes.forEach(mes => {
-			const faturamentoMes = faturamentos.find(f =>
-			  f.cnpj === cnpj && f.mes === mes
-			);
+			const resultado = calcularImpostos(); // AGORA RETORNA
 
-			if (!faturamentoMes) return;
-
-			// 1️⃣ RBT12
-			const rbt12 = calcularRBT12(cnpj, mes);
-
-			// 2️⃣ Fator R
-			const fatorR = rbt12 > 0
-			  ? (faturamentoMes.massaSalarial || 0) / rbt12
-			  : 0;
-
-			const resultado = {
-			  cnpj,
-			  mes,
-			  regime: 'simples',
-			  rbt12,
-			  fatorR,
-			  anexos: {},
-			  totalImposto: 0,
-			  dataCalculo: new Date().toISOString()
-			};
-
-			// 3️⃣ Calcular por anexo / tipo
-			Object.entries(faturamentoMes.segregacao || {}).forEach(([anexo, tipos]) => {
-			  Object.entries(tipos).forEach(([tipo, valorFaturado]) => {
-				const valor = Number(valorFaturado || 0);
-				if (valor <= 0) return;
-
-				const faixa = encontrarFaixaSimples(anexo, rbt12, fatorR, faixas);
-				const aliquota = faixa.aliquota;
-				const imposto = valor * aliquota;
-
-				if (!resultado.anexos[anexo]) {
-				  resultado.anexos[anexo] = {};
-				}
-
-				resultado.anexos[anexo][tipo] = {
-				  faturamento: valor,
-				  aliquota,
-				  imposto,
-				  anexoCalculo: faixa.anexoCalculo
-				};
-
-				resultado.totalImposto += imposto;
-			  });
-			});
-
-			// 4️⃣ Salvar resultado oficial
-			salvarResultadoImposto(resultado);
+			if (resultado) {
+			  salvarResultadoImposto(resultado);
+			}
 		  });
 
-		  mostrarMensagem('Impostos pendentes calculados com sucesso.', 'success');
-
-		  // atualizar resumo automaticamente
 		  carregarResumo();
 		}
 		
 		function obterMesesPendentes(cnpj, ano) {
-		  const faturamentos = JSON.parse(localStorage.getItem('faturamento') || '[]');
-		  const resultados = JSON.parse(localStorage.getItem('resultadosImpostos') || '[]');
+		  const faturamentos = JSON.parse(localStorage.getItem('faturamento')) || [];
+		  const resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
 
-		  // meses com faturamento no ano
 		  const mesesComFaturamento = faturamentos
 			.filter(f => f.cnpj === cnpj && f.mes.startsWith(ano))
 			.map(f => f.mes);
 
-		  // meses já calculados
 		  const mesesCalculados = resultados
 			.filter(r => r.cnpj === cnpj && r.mes.startsWith(ano))
 			.map(r => r.mes);
 
-		  // diferença
-		  return mesesComFaturamento
-			.filter(mes => !mesesCalculados.includes(mes))
-			.sort(); // ordem cronológica
+		  return mesesComFaturamento.filter(mes => !mesesCalculados.includes(mes));
 		}
 		
 		function obterFaturamentoMes(cnpj, mes) {
@@ -3424,14 +3365,20 @@
 			}
 			
 			resultadoParaSalvar.totalImposto = impostoCalculadoTotal;
+			const resultadoFinal = {
+			  cnpj,
+			  mes: mesReferencia,
+			  regime,
+			  resultado: {
+				rbt12,
+				fatorR,
+				totalImposto: impostoCalculadoTotal,
+				anexos: resultadoDetalhado.anexos
+			  }
+			};
 
 			// 🔐 SALVAR RESULTADO PARA O RESUMO
-	//		salvarResultadoImposto(
-	//			cnpj,
-	//			mesReferencia,
-	//			regime,
-	//			resultadoParaSalvar
-	//		);
+			salvarResultadoImposto(resultadoFinal);
 
 			// Renderizar resultado
 			resultadoDiv.innerHTML = `
@@ -3453,13 +3400,8 @@
 			`;
 			resultadoDiv.classList.remove('hidden');
 			resultadoDetalhado.impostoTotal = impostoCalculadoTotal;
-
-	//		salvarResultadoImposto({
-	//		  cnpj,
-	//		  mes: mesReferencia,
-	//		  regime,
-	//		  resultado: resultadoDetalhado
-	//		});
+			salvarResultadoImposto(resultadoFinal);
+			return resultadoFinal;
 		}			
 			
 		// FUNÇÃO AUXILIAR: Calcular faturamento global (sem segregação)
@@ -3477,29 +3419,19 @@
 		}		
 			
 		function salvarResultadoImposto(resultado) {
-		  if (!resultado || !resultado.cnpj || !resultado.mes) {
-			throw new Error('Resultado inválido para salvamento');
-		  }
+		  let dados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
 
-		  let resultados = JSON.parse(localStorage.getItem('resultadosImpostos')) || [];
-
-		  const idx = resultados.findIndex(r =>
-			r.cnpj === resultado.cnpj &&
-			r.mes === resultado.mes
+		  // remove cálculo anterior do mesmo mês
+		  dados = dados.filter(r =>
+			!(r.cnpj === resultado.cnpj && r.mes === resultado.mes)
 		  );
 
-		  const payload = {
+		  dados.push({
 			...resultado,
-			atualizadoEm: new Date().toISOString()
-		  };
+			salvoEm: new Date().toISOString()
+		  });
 
-		  if (idx >= 0) {
-			resultados[idx] = payload; // update
-		  } else {
-			resultados.push(payload);  // insert
-		  }
-
-		  localStorage.setItem('resultadosImpostos', JSON.stringify(resultados));
+		  localStorage.setItem('resultadosImpostos', JSON.stringify(dados));
 		}
 
 		// FUNÇÃO AUXILIAR: Editar situação por CNPJ
