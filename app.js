@@ -1028,35 +1028,24 @@
 		  dadosResumo
 			.sort((a, b) => a.mes.localeCompare(b.mes))
 			.forEach(d => {
-			  const tr = document.createElement('tr');
+			  let html = '<tr>';
 
-			  colunas.forEach(col => {
-				const td = document.createElement('td');
+			  html += `<td>${formatarMesAno(d.mes)}</td>`;
+			  html += `<td>${formatarMoeda(d.faturamento.valor)}</td>`;
 
-				if (col.key === 'mes') {
-				  td.textContent = formatarMesAno(d.mes);
-				}
-
-				else if (col.key === 'faturamentoTotal') {
-				  td.textContent = formatarMoeda(d.faturamento.valor);
-				}
-
-				else if (col.key === 'impostoTotal') {
-				  const total =
-					d.resultado?.resultado?.totalImposto || 0;
-				  td.textContent = formatarMoeda(total);
-				}
-
-				else {
-				  const [anexo, tipo] = col.split('|');
-				  const valor = d.faturamento?.segregacao?.[anexo]?.[tipo] || 0;
-				  td.textContent = valor > 0 ? formatarMoeda(valor) : '-';
-				}
-
-				tr.appendChild(td);
+			  colunas.forEach(c => {
+				const [anexo, tipo] = c.split('|');
+				const valor = d.faturamento?.segregacao?.[anexo]?.[tipo] || 0;
+				html += `<td>${valor ? formatarMoeda(valor) : '-'}</td>`;
 			  });
 
-			  tbody.appendChild(tr);
+			  // imposto total do mês: 0 se ainda não calculado
+			  const totalImposto = d.resultado?.resultado?.totalImposto || 0;
+			  html += `<td>${formatarMoeda(totalImposto)}</td>`;
+
+			  html += '</tr>';
+
+			  tbody.insertAdjacentHTML('beforeend', html);
 			});
 		}
 		
