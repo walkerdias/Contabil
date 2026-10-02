@@ -1,0 +1,2281 @@
+// js/app.js - ARQUIVO PRINCIPAL SIMPLIFICADO
+
+"use strict";
+
+// ==================== 1. FUNÇÕES ESSENCIAIS ====================
+/**
+ * Configura a alternância entre as abas internas do cadastro (Empresas e Situações)
+ */
+function configurarAbasInternasCadastro() {
+    const tabEmpresas = document.getElementById('tabEmpresas');
+    const tabSituacoes = document.getElementById('tabSituacoes');
+    const empresasContent = document.getElementById('empresasContent');
+    const situacoesContent = document.getElementById('situacoesContent');
+    
+    if (!tabEmpresas || !tabSituacoes || !empresasContent || !situacoesContent) {
+        console.warn('Elementos das abas internas do cadastro não encontrados');
+        return;
+    }
+    
+    // Função para alternar abas
+    function alternarAba(abaAtiva) {
+        // Atualizar botões
+        [tabEmpresas, tabSituacoes].forEach(tab => {
+            tab.classList.remove('active', 'border-brand-600', 'text-gray-700');
+            tab.classList.add('text-gray-600');
+        });
+        
+        // Atualizar conteúdos
+        [empresasContent, situacoesContent].forEach(content => {
+            content.classList.remove('active');
+            content.classList.add('hidden');
+        });
+        
+        // Ativar aba selecionada
+        if (abaAtiva === 'empresas') {
+            tabEmpresas.classList.add('active', 'border-brand-600', 'text-gray-700');
+            empresasContent.classList.add('active');
+            empresasContent.classList.remove('hidden');
+            
+            // Carregar empresas na grid se necessário
+            if (typeof carregarEmpresasGrid === 'function') {
+                setTimeout(() => carregarEmpresasGrid(), 100);
+            }
+            
+        } else if (abaAtiva === 'situacoes') {
+            tabSituacoes.classList.add('active', 'border-brand-600', 'text-gray-700');
+            situacoesContent.classList.add('active');
+            situacoesContent.classList.remove('hidden');
+            
+            // Carregar lista de situações se o controller estiver disponível
+            if (window.situacaoController && typeof window.situacaoController.carregarListaSituacoes === 'function') {
+                setTimeout(() => window.situacaoController.carregarListaSituacoes(), 100);
+            }
+        }
+    }
+    
+    // Adicionar event listeners
+    tabEmpresas.addEventListener('click', () => alternarAba('empresas'));
+    tabSituacoes.addEventListener('click', () => alternarAba('situacoes'));
+    
+	// Carregar conteúdo da aba ativa no carregamento inicial
+    setTimeout(() => {
+        if (empresasContent.classList.contains('active')) {
+            alternarAba('empresas'); // Isso vai carregar a grid de empresas
+        } else if (situacoesContent.classList.contains('active')) {
+            alternarAba('situacoes'); // Isso vai carregar a lista de situações
+        }
+    }, 200);
+	
+    console.log('✅ Abas internas do cadastro configuradas');
+}
+
+/**
+ * Carrega empresas na grid do cadastro (integrada com controllers)
+ */
+function carregarEmpresasGrid() {
+    const grid = document.getElementById('empresasGrid');
+    if (!grid) return;
+    
+    try {
+        const empresas = DataStore.obterTodos('empresas', []);
+        
+        if (empresas.length === 0) {
+            grid.innerHTML = `
+                <div class="col-span-full text-center py-12 text-gray-400">
+                    <i class="fas fa-building text-3xl mb-3"></i>
+                    <p>Nenhuma empresa cadastrada</p>
+                    <p class="text-sm mt-1">Use o botão "Nova Empresa" para começar</p>
+                </div>
+            `;
+            return;
+        }
+        
+        grid.innerHTML = empresas.map(empresa => `
+            <div class="dashboard-card bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <div class="flex items-start justify-between mb-3">
+                    <div class="w-12 h-12 rounded-lg bg-brand-100 flex items-center justify-center">
+                        <i class="fas fa-building text-brand-600 text-lg"></i>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="abrirEditarEmpresa('${empresa.id}')" 
+                                class="p-1 text-gray-400 hover:text-brand-600"
+                                title="Editar empresa">
+                            <i class="fas fa-edit text-sm"></i>
+                        </button>
+                        <button onclick="abrirSituacoesEmpresa('${empresa.id}')" 
+                                class="p-1 text-gray-400 hover:text-green-600"
+                                title="Ver situações">
+                            <i class="fas fa-eye text-sm"></i>
+                        </button>
+                        <button onclick="abrirFaturamentoParaEmpresa('${empresa.id}')" 
+                                class="p-1 text-gray-400 hover:text-purple-600"
+                                title="Registrar faturamento">
+                            <i class="fas fa-chart-bar text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <h4 class="font-bold text-gray-900 mb-1 truncate">${empresa.nomeFantasia || empresa.razaoSocial}</h4>
+                <p class="text-sm text-gray-500 mb-3">${empresa.cnpj || 'Sem CNPJ'}</p>
+                
+                <div class="space-y-2 mb-4">
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600">Abertura:</span>
+                        <span class="font-medium">${UIUtils.formatarData(empresa.dataAbertura)}</span>
+                    </div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600">Sócios:</span>
+                        <span class="font-medium">${empresa.socios?.length || 0}</span>
+                    </div>
+                </div>
+                
+                <div class="pt-3 border-t flex gap-2">
+                    <button onclick="verDetalhesCompletosEmpresa('${empresa.id}')" 
+                            class="flex-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition">
+                        <i class="fas fa-info-circle mr-1"></i> Detalhes
+                    </button>
+                    <button onclick="verSociosEmpresa('${empresa.id}')" 
+                            class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm hover:bg-blue-100 transition">
+                        <i class="fas fa-users"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+        
+        console.log(`✅ ${empresas.length} empresas carregadas na grid`);
+        
+    } catch (error) {
+        console.error('❌ Erro ao carregar empresas grid:', error);
+        grid.innerHTML = `
+            <div class="col-span-full text-center py-12 text-red-400">
+                <i class="fas fa-exclamation-triangle text-3xl mb-3"></i>
+                <p>Erro ao carregar empresas</p>
+                <p class="text-sm mt-1">${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Executa inicializações específicas de cada aba
+ */
+function executarInicializacoesAba(tabId) {
+    console.log(`🔄 Executando inicializações para aba: ${tabId}`);
+    
+    setTimeout(() => {
+        switch(tabId) {
+            case 'faturamento':
+                if (!window.faturamentoController && document.getElementById('faturamentoForm')) {
+                    try {
+                        window.faturamentoController = new FaturamentoController();
+                        console.log('✅ FaturamentoController inicializado');
+                    } catch (error) {
+                        console.error('❌ Erro ao criar FaturamentoController:', error);
+                    }
+                }
+                if (window.faturamentoController && typeof window.faturamentoController.carregarListaFaturamento === 'function') {
+                    window.faturamentoController.carregarListaFaturamento();
+                }
+                break;
+                
+            case 'calculo':
+                initCalculoAba();
+                break;
+                
+            case 'resumo':
+                // Carregar anos
+                carregarAnosResumo();
+                // Inicializar controller
+                if (!window.resumoController && document.getElementById('resumoEmpresa')) {
+                    try {
+                        window.resumoController = new ResumoController();
+                        console.log('✅ ResumoController inicializado');
+                    } catch (error) {
+                        console.error('❌ Erro ao criar ResumoController:', error);
+                    }
+                }
+                break;
+                
+            case 'relatorios':
+                if (typeof atualizarSelectEmpresas === 'function') {
+                    atualizarSelectEmpresas();
+                }
+                break;
+                
+            case 'parametros':
+                initParametrizacaoListeners();
+                break;
+                
+            case 'cadastro':
+                // ✅ INICIALIZAR CONTROLLERS DA ABA CADASTRO
+				initEmpresaAba();
+				initSituacaoAba();
+				
+				// Configurar abas internas
+				setTimeout(() => {
+					configurarAbasInternasCadastro();
+					
+					// Verificar qual aba interna está ativa e carregar o conteúdo correspondente
+					const empresasContent = document.getElementById('empresasContent');
+					const situacoesContent = document.getElementById('situacoesContent');
+					
+					if (empresasContent && empresasContent.classList.contains('active')) {
+						// Se a aba de empresas está ativa, carregar a grid
+						carregarEmpresasGrid();
+					} else if (situacoesContent && situacoesContent.classList.contains('active')) {
+						// Se a aba de situações está ativa, carregar a lista de situações
+						if (window.situacaoController && typeof window.situacaoController.carregarListaSituacoes === 'function') {
+							window.situacaoController.carregarListaSituacoes();
+						}
+					}
+				}, 300);
+                break;
+                
+            case 'dashboard':
+                // Stats são atualizados automaticamente pelo UIUtils.inicializarLayout()
+                break;
+			
+			default:
+                console.warn(`Aba não reconhecida: ${tabId}`);
+        }
+    }, 100);
+}
+
+// ==================== FUNÇÕES INTEGRADAS COM CONTROLLERS ====================
+
+/**
+ * Abre modal de edição de empresa (integra com empresaController)
+ */
+function abrirEditarEmpresa(empresaId) {
+    // Primeiro abre o modal
+    abrirCadastroEmpresa();
+    
+    // Garantir que o controller está inicializado
+    if (!window.empresaController) {
+        console.warn('EmpresaController não inicializado, tentando inicializar...');
+        initEmpresaAba();
+    }
+    
+    // Depois preenche com os dados da empresa
+    setTimeout(() => {
+        if (window.empresaController) {
+            window.empresaController.editarEmpresa(empresaId);
+        } else {
+            console.error('EmpresaController não disponível após tentativa de inicialização');
+            UIUtils.mostrarToast('Erro: Controller de empresas não carregado', 'error');
+        }
+    }, 300);
+}
+
+/**
+ * Abre modal de situações para empresa específica
+ */
+function abrirSituacoesEmpresa(empresaId) {
+    const empresa = DataStore.obterPorId('empresas', empresaId);
+    if (!empresa) {
+        UIUtils.mostrarToast('Empresa não encontrada', 'error');
+        return;
+    }
+    
+    // Abre o modal de situações
+    abrirNovaSituacao();
+    
+    // Preenche automaticamente o CNPJ
+    setTimeout(() => {
+        const select = document.getElementById('cnpjEmpresa');
+        if (select && empresa.cnpj) {
+            select.value = empresa.cnpj;
+            // Disparar evento para carregar dados
+            const event = new Event('change', { bubbles: true });
+            select.dispatchEvent(event);
+        }
+        
+        // Mostrar mensagem informativa
+        UIUtils.mostrarToast(`Editando situações para: ${empresa.razaoSocial}`, 'info');
+    }, 300);
+}
+
+/**
+ * Abre registro de faturamento para empresa específica
+ */
+function abrirFaturamentoParaEmpresa(empresaId) {
+    const empresa = DataStore.obterPorId('empresas', empresaId);
+    if (!empresa) {
+        UIUtils.mostrarToast('Empresa não encontrada', 'error');
+        return;
+    }
+    
+    // Navega para aba de faturamento
+    switchTab('faturamento');
+    
+    // Preenche automaticamente o CNPJ
+    setTimeout(() => {
+        const select = document.getElementById('cnpjFaturamento');
+        if (select && empresa.cnpj) {
+            select.value = empresa.cnpj;
+            // Disparar evento para carregar dados
+            const event = new Event('change', { bubbles: true });
+            select.dispatchEvent(event);
+        }
+        
+        // Focar no campo de mês
+        const mesInput = document.getElementById('mesFaturamento');
+        if (mesInput) {
+            mesInput.focus();
+        }
+        
+        UIUtils.mostrarToast(`Registre o faturamento para: ${empresa.razaoSocial}`, 'info');
+    }, 300);
+}
+
+/**
+ * Ver detalhes completos da empresa em modal
+ */
+function verDetalhesCompletosEmpresa(empresaId) {
+    const empresa = DataStore.obterPorId('empresas', empresaId);
+    if (!empresa) {
+        UIUtils.mostrarToast('Empresa não encontrada', 'error');
+        return;
+    }
+    
+    // Criar modal de detalhes
+    mostrarModalDetalhesEmpresa(empresa);
+}
+
+/**
+ * Ver sócios da empresa (usa função do empresaController)
+ */
+function verSociosEmpresa(empresaId) {
+    // Garantir que o controller está inicializado
+    if (!window.empresaController) {
+        console.warn('EmpresaController não inicializado, tentando inicializar...');
+        initEmpresaAba();
+    }
+    
+    if (window.empresaController && typeof window.empresaController.mostrarSocios === 'function') {
+        window.empresaController.mostrarSocios(empresaId);
+    } else {
+        // Fallback básico
+        const empresa = DataStore.obterPorId('empresas', empresaId);
+        if (empresa && empresa.socios && empresa.socios.length > 0) {
+            let mensagem = `Sócios de ${empresa.razaoSocial}:\n`;
+            empresa.socios.forEach((socio, index) => {
+                mensagem += `\n${index + 1}. ${socio.nome || 'Sem nome'} (CPF: ${socio.cpf || 'Não informado'})`;
+            });
+            alert(mensagem);
+        } else {
+            UIUtils.mostrarToast('Esta empresa não tem sócios cadastrados', 'info');
+        }
+    }
+}
+
+/**
+ * Mostra modal com detalhes completos da empresa
+ */
+function mostrarModalDetalhesEmpresa(empresa) {
+    const numSocios = empresa.socios ? empresa.socios.length : 0;
+    let sociosHTML = '';
+    
+    if (empresa.socios && empresa.socios.length > 0) {
+        sociosHTML = '<div class="space-y-2 mt-3">';
+        empresa.socios.forEach((socio, index) => {
+            sociosHTML += `
+                <div class="bg-gray-50 p-3 rounded">
+                    <div class="font-medium">Sócio ${index + 1}</div>
+                    <div class="text-sm text-gray-600">CPF: ${socio.cpf || 'Não informado'}</div>
+                    <div class="text-sm text-gray-600">Nome: ${socio.nome || 'Não informado'}</div>
+                </div>
+            `;
+        });
+        sociosHTML += '</div>';
+    }
+    
+    // Buscar situações da empresa
+    const situacoes = DataStore.filtrarPorPropriedade('situacoes', 'empresaId', empresa.id);
+    const situacaoAtual = situacoes.length > 0 ? situacoes[situacoes.length - 1] : null;
+    
+    // Buscar faturamentos
+    const faturamentos = DataStore.filtrarPorPropriedade('faturamentos', 'empresaId', empresa.id);
+    const faturamentoTotal = faturamentos.reduce((total, f) => {
+        return total + (f.valores?.faturamentoTotal || 0);
+    }, 0);
+	
+	if (situacaoAtual) {
+    // Usar as funções globais
+    const nomeRegime = window.getNomeRegime(situacaoAtual.regime);
+    const classeRegime = window.getClasseRegime(situacaoAtual.regime);
+    
+    const modalHTML = `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h3 class="text-xl font-bold text-gray-900">${empresa.razaoSocial}</h3>
+                            <p class="text-gray-500">${empresa.nomeFantasia || ''}</p>
+                        </div>
+                        <button onclick="this.closest('[class*=\\'bg-black\\']').remove()" 
+                                class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">CNPJ</label>
+                                <div class="text-lg font-mono">${empresa.cnpj || 'Não informado'}</div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Inscrição Estadual</label>
+                                <div class="text-lg">${empresa.ie || 'Não informado'}</div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Data de Abertura</label>
+                                <div class="text-lg">${UIUtils.formatarData(empresa.dataAbertura)}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Sócios</label>
+                                <div class="text-lg font-medium">${numSocios} sócio(s)</div>
+                                ${sociosHTML}
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Situação Atual</label>
+                                <div class="text-lg">
+                                    ${situacaoAtual ? 
+                                        `<span class="px-2 py-1 rounded text-sm ${classeRegime}>
+                                        ${nomeRegime}
+                                        </span>` : 
+                                        'Não informada'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Estatísticas -->
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <div class="text-sm text-blue-700">Situações</div>
+                            <div class="text-2xl font-bold text-blue-800">${situacoes.length}</div>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg">
+                            <div class="text-sm text-green-700">Faturamentos</div>
+                            <div class="text-2xl font-bold text-green-800">${faturamentos.length}</div>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <div class="text-sm text-purple-700">Faturamento Total</div>
+                            <div class="text-2xl font-bold text-purple-800">${UIUtils.formatarMoeda(faturamentoTotal)}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-8 pt-6 border-t border-gray-200">
+                        <div class="flex flex-wrap gap-3">
+                            <button onclick="abrirEditarEmpresa('${empresa.id}')" 
+                                    class="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 flex items-center gap-2">
+                                <i class="fas fa-edit"></i> Editar Empresa
+                            </button>
+                            
+                            <button onclick="abrirSituacoesEmpresa('${empresa.id}')" 
+                                    class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+                                <i class="fas fa-file-contract"></i> Gerenciar Situações
+                            </button>
+                            
+                            <button onclick="abrirFaturamentoParaEmpresa('${empresa.id}')" 
+                                    class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2">
+                                <i class="fas fa-chart-bar"></i> Registrar Faturamento
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+		`;
+    
+		// Remover modais anteriores
+		document.querySelectorAll('.fixed.inset-0.bg-black').forEach(modal => {
+			if (modal.id !== 'modalCadastroEmpresa' && modal.id !== 'modalNovaSituacao') {
+				modal.remove();
+			}
+		});
+		
+		// Adicionar novo modal
+		const div = document.createElement('div');
+		div.innerHTML = modalHTML;
+		document.body.appendChild(div.firstElementChild);
+	}
+}
+
+// 1.2 FUNÇÃO DE INICIALIZAÇÃO BÁSICA
+/**
+ * Inicializa o controller de empresa quando a aba é aberta
+ */
+function initEmpresaAba() {
+    console.log('🏢 Inicializando aba de empresa...');
+    
+    // Verificar se o formulário existe
+    if (!document.getElementById('clienteForm')) {
+        console.log('Formulário de empresa não encontrado');
+        return;
+    }
+    
+    // Verificar se DataStore está disponível
+    if (typeof DataStore === 'undefined') {
+        console.warn('DataStore não disponível. Aguardando...');
+        setTimeout(initEmpresaAba, 300);
+        return;
+    }
+    
+    // Criar controller apenas se não existir
+    if (!window.empresaController) {
+        try {
+            window.empresaController = new EmpresaController();
+            console.log('✅ EmpresaController criado');
+        } catch (error) {
+            console.error('❌ Erro ao criar EmpresaController:', error);
+        }
+    } else {
+        console.log('✅ EmpresaController já está ativo');
+    }
+}
+
+/**
+ * Inicializa o controller de situação quando a aba é aberta
+ */
+function initSituacaoAba() {
+    console.log('Inicializando aba de situação...');
+    
+    // Verificar se o formulário existe
+    if (!document.getElementById('situacaoForm')) {
+        console.log('Formulário de situação não encontrado');
+        return;
+    }
+    
+    // Verificar se DataStore está disponível
+    if (typeof DataStore === 'undefined') {
+        console.warn('DataStore não disponível. Aguardando...');
+        setTimeout(initSituacaoAba, 300);
+        return;
+    }
+    
+    // Criar controller apenas se não existir
+    if (!window.situacaoController) {
+        try {
+            window.situacaoController = new SituacaoController();
+            console.log('✅ SituacaoController criado');
+        } catch (error) {
+            console.error('❌ Erro ao criar SituacaoController:', error);
+        }
+    } else {
+        console.log('✅ SituacaoController já está ativo');
+    }
+}
+
+function initApp() {
+    console.log('🚀 Inicializando app...');
+    
+    // Verificar dependências
+    if (typeof DataStore === 'undefined') {
+        console.error('❌ DataStore não encontrado!');
+        UIUtils.mostrarToast('Erro: Módulo de dados não carregado. Recarregue a página.', 'error');
+        return;
+    }
+    
+    // Inicializar dados no localStorage
+    const chaves = ['empresas', 'faixasSimples', 'situacoes', 'faturamentos', 'configsPresumido', 'configsReal'];
+    chaves.forEach(chave => {
+        if (!localStorage.getItem(chave)) {
+            localStorage.setItem(chave, JSON.stringify([]));
+            console.log(`📦 ${chave} inicializada no localStorage`);
+        }
+    });
+	
+	console.log('✅ App inicializado com sucesso');
+    
+    // Atualizar selects usando UIUtils
+	setTimeout(() => {
+		if (window.UIUtils && typeof window.UIUtils.atualizarSelects === 'function') {
+			window.UIUtils.atualizarSelects();
+		}
+	}, 300);
+    
+    console.log('✅ App inicializado com sucesso');
+}
+
+// ==================== MÓDULO DE CÁLCULO COMPARTILHADO ====================
+
+/**
+ * Módulo de cálculo de impostos compartilhado entre todas as abas
+ */
+const CalculoCompartilhado = {
+    
+    /**
+     * Calcula imposto do Simples Nacional (usado por ResumoController e aba cálculo)
+     */
+    calcularImpostoSimples: function(faturamento, rbt12, situacao, empresaCnpj) {
+        console.log('🧮 [Compartilhado] Calculando Simples Nacional...');
+        
+        if (!faturamento) {
+            throw new Error('Faturamento não encontrado');
+        }
+        
+        const faturamentoMes = this.calcularFaturamentoTotal(faturamento);
+        
+        // 1. Buscar todas as faixas
+        const todasFaixas = DataStore.obterTodos('faixasSimples', []);
+        console.log(`📊 Total de faixas: ${todasFaixas.length}`);
+        
+        if (todasFaixas.length === 0) {
+            throw new Error('Nenhuma faixa do Simples Nacional cadastrada');
+        }
+        
+        // 2. Filtrar por vigência
+        const dataFaturamento = new Date(faturamento.ano, faturamento.mes - 1, 1);
+        const faixasVigentes = todasFaixas.filter(f => {
+            if (!f.vigencia) return false;
+            const [anoVig, mesVig] = f.vigencia.split('-').map(Number);
+            const dataVigencia = new Date(anoVig, mesVig - 1, 1);
+            return dataVigencia <= dataFaturamento;
+        });
+        
+        console.log(`📊 Faixas com vigência adequada: ${faixasVigentes.length}`);
+        
+        // 3. Filtrar por anexo se a situação tiver anexos definidos
+        let faixasFiltradas = faixasVigentes;
+        
+        if (situacao?.anexos?.length > 0) {
+            const anexoPrincipal = situacao.anexos[0].codigoAnexo;
+            faixasFiltradas = faixasVigentes.filter(f => f.anexo === anexoPrincipal);
+            console.log(`📊 Filtrando por anexo ${anexoPrincipal}: ${faixasFiltradas.length} faixas`);
+        }
+        
+        if (faixasFiltradas.length === 0) {
+            faixasFiltradas = faixasVigentes;
+            console.log('📊 Nenhuma faixa encontrada para o anexo, usando todas as faixas vigentes');
+        }
+        
+        // 4. Ordenar por RBT Início (crescente)
+        faixasFiltradas.sort((a, b) => a.rbtInicio - b.rbtInicio);
+        
+        // 5. Encontrar a faixa correta baseada no RBT12
+        const faixaAplicavel = faixasFiltradas.find(f => {
+            return rbt12 >= f.rbtInicio && rbt12 <= f.rbtFim;
+        });
+        
+        if (!faixaAplicavel) {
+            // Tentar encontrar a última faixa (se RBT12 for maior que todas)
+            const ultimaFaixa = faixasFiltradas[faixasFiltradas.length - 1];
+            if (rbt12 > ultimaFaixa.rbtFim) {
+                console.warn(`📊 RBT12 acima da última faixa. Usando última faixa.`);
+                return this.calcularComFaixa(rbt12, ultimaFaixa, faturamentoMes);
+            }
+            
+            // Tentar encontrar a primeira faixa (se RBT12 for menor que todas)
+            const primeiraFaixa = faixasFiltradas[0];
+            if (rbt12 < primeiraFaixa.rbtInicio) {
+                console.warn(`📊 RBT12 abaixo da primeira faixa. Usando primeira faixa.`);
+                return this.calcularComFaixa(rbt12, primeiraFaixa, faturamentoMes);
+            }
+            
+            throw new Error(`RBT12 não se encaixa em nenhuma faixa cadastrada`);
+        }
+        
+        console.log(`📊 Faixa aplicável encontrada: ${faixaAplicavel.nomeFaixa}`);
+        return this.calcularComFaixa(rbt12, faixaAplicavel, faturamentoMes);
+    },
+    
+    /**
+     * Cálculo de imposto usando uma faixa específica (CORRIGIDO)
+     */
+    calcularComFaixa: function(rbt12, faixa, faturamentoMes) {
+        console.log(`📊 Calculando imposto com faixa: ${faixa.nomeFaixa}`);
+        
+        // 1. Calcular FATURAMENTO DO MÊS (RBP)
+        console.log(`📊 Faturamento do mês (RBP): ${UIUtils.formatarMoeda(faturamentoMes)}`);
+        
+        // 2. Calcular imposto base: (RBT12 * aliquota) - dedução
+        const aliquotaDecimal = faixa.aliquota / 100;
+        let impostoBaseRbt12 = (rbt12 * aliquotaDecimal) - (faixa.valorDeduzir || 0);
+        impostoBaseRbt12 = Math.max(0, impostoBaseRbt12);
+        
+        // 3. Calcular alíquota efetiva baseada no RBT12
+        const aliquotaEfetiva = rbt12 > 0 ? (impostoBaseRbt12 / rbt12) * 100 : 0;
+        
+        // 4. Aplicar alíquota efetiva ao FATURAMENTO DO MÊS (CORREÇÃO)
+        let impostoFinal = faturamentoMes * (aliquotaEfetiva / 100);
+        
+        // 5. Verificar se há repartição cadastrada
+        const reparticao = {};
+        let totalReparticao = 0;
+        
+        if (faixa.reparticao && typeof faixa.reparticao === 'object') {
+            console.log('📊 Repartição encontrada:', faixa.reparticao);
+            
+            // Calcular valor de cada tributo
+            Object.entries(faixa.reparticao).forEach(([tributo, percentual]) => {
+                if (percentual > 0) {
+                    const valorTributo = impostoFinal * (percentual / 100);
+                    reparticao[tributo] = {
+                        percentual: percentual,
+                        valor: valorTributo
+                    };
+                    totalReparticao += valorTributo;
+                }
+            });
+            
+            // Verificar se a soma da repartição é 100%
+            const somaPercentuais = Object.values(faixa.reparticao).reduce((a, b) => a + b, 0);
+            if (Math.abs(somaPercentuais - 100) > 0.1) {
+                console.warn(`⚠️ Soma da repartição não é 100%: ${somaPercentuais}%`);
+            }
+        } else {
+            console.warn('📊 Nenhuma repartição encontrada na faixa');
+        }
+
+        // 6. Definir valor final do imposto
+        impostoFinal = totalReparticao > 0 ? totalReparticao : impostoFinal;
+        
+        console.log(`📊 RBT12 (para faixa): ${UIUtils.formatarMoeda(rbt12)}`);
+        console.log(`📊 Alíquota nominal: ${faixa.aliquota}%`);
+        console.log(`📊 Alíquota efetiva: ${aliquotaEfetiva.toFixed(2)}%`);
+        console.log(`📊 Imposto calculado: ${UIUtils.formatarMoeda(impostoFinal)}`);
+        
+        // Calcular percentual sobre faturamento
+        const percentualSobreFaturamento = faturamentoMes > 0 ? (impostoFinal / faturamentoMes) * 100 : 0;
+
+        return {
+            valorImposto: impostoFinal,
+            reparticao: reparticao,
+            rbt12: rbt12,
+            rbp: faturamentoMes,
+            faixaUtilizada: faixa.nomeFaixa,
+            anexo: faixa.anexo || 'Não especificado',
+            aliquotaNominal: faixa.aliquota,
+            aliquotaEfetiva: aliquotaEfetiva,
+            percentualSobreFaturamento: percentualSobreFaturamento,
+            deducaoAplicada: faixa.valorDeduzir || 0,
+            dataCalculo: new Date().toISOString(),
+            detalhes: {
+                rbtInicioFaixa: faixa.rbtInicio,
+                rbtFimFaixa: faixa.rbtFim,
+                impostoBaseRbt12: impostoBaseRbt12,
+                faturamentoMes: faturamentoMes,
+                percentuaisReparticao: faixa.reparticao || {}
+            }
+        };
+    },
+    
+    /**
+     * Calcula imposto do Lucro Presumido
+     */
+    calcularImpostoPresumido: function(faturamento) {
+        console.log('🧮 [Compartilhado] Calculando Lucro Presumido...');
+        
+        if (!faturamento) {
+            throw new Error('Faturamento não encontrado');
+        }
+        
+        // Buscar configuração do Lucro Presumido vigente
+        const configsPresumido = DataStore.obterTodos('configsPresumido', [])
+            .filter(c => {
+                const vigencia = new Date(c.vigencia);
+                const dataFaturamento = new Date(faturamento.ano, faturamento.mes - 1, 1);
+                return vigencia <= dataFaturamento;
+            })
+            .sort((a, b) => new Date(b.vigencia) - new Date(a.vigencia));
+
+        if (configsPresumido.length === 0) {
+            throw new Error('Nenhuma configuração de Lucro Presumido cadastrada');
+        }
+
+        const config = configsPresumido[0];
+        const valores = faturamento.valores;
+        const faturamentoTotal = this.calcularFaturamentoTotal(faturamento);
+
+        // Cálculos básicos
+        const calculos = {
+            valorImposto: 0,
+            detalhes: {},
+            dataCalculo: new Date().toISOString()
+        };
+
+        // IRPJ
+        const presuncaoIRPJ = config.presuncaoIRPJ || 8;
+        const baseIRPJ = faturamentoTotal * (presuncaoIRPJ / 100);
+        const irpj = baseIRPJ * (config.aliquotaIRPJ / 100);
+        
+        // Adicional IRPJ (se faturamento > 20k/mês)
+        let adicionalIRPJ = 0;
+        if (faturamentoTotal > 20000) {
+            const baseAdicional = faturamentoTotal - 20000;
+            adicionalIRPJ = baseAdicional * (config.adicionalIRPJ / 100);
+        }
+
+        // CSLL
+        const presuncaoCSLL = config.presuncaoCSLL || 12;
+        const baseCSLL = faturamentoTotal * (presuncaoCSLL / 100);
+        const csll = baseCSLL * (config.aliquotaCSLL / 100);
+
+        // PIS/COFINS
+        const pisCofins = faturamentoTotal * (config.pisCofins / 100);
+
+        // ISS/ICMS (simplificado)
+        const iss = valores.faturamentoServicos ? valores.faturamentoServicos * (config.iss / 100) : 0;
+        const icms = valores.faturamentoComercio ? valores.faturamentoComercio * (config.icms / 100) : 0;
+
+        // Total
+        calculos.valorImposto = irpj + adicionalIRPJ + csll + pisCofins + iss + icms;
+        
+        // Detalhes
+        calculos.detalhes = {
+            irpj: { base: baseIRPJ, valor: irpj },
+            adicionalIRPJ: { base: Math.max(0, faturamentoTotal - 20000), valor: adicionalIRPJ },
+            csll: { base: baseCSLL, valor: csll },
+            pisCofins: { base: faturamentoTotal, valor: pisCofins },
+            iss: { base: valores.faturamentoServicos || 0, valor: iss },
+            icms: { base: valores.faturamentoComercio || 0, valor: icms }
+        };
+
+        return calculos;
+    },
+    
+    /**
+     * Calcula imposto do Lucro Real
+     */
+    calcularImpostoReal: function(faturamento) {
+        console.log('🧮 [Compartilhado] Calculando Lucro Real...');
+        
+        if (!faturamento) {
+            throw new Error('Faturamento não encontrado');
+        }
+        
+        // Buscar configuração do Lucro Real vigente
+        const configsReal = DataStore.obterTodos('configsReal', [])
+            .filter(c => {
+                const vigencia = new Date(c.vigencia);
+                const dataFaturamento = new Date(faturamento.ano, faturamento.mes - 1, 1);
+                return vigencia <= dataFaturamento;
+            })
+            .sort((a, b) => new Date(b.vigencia) - new Date(a.vigencia));
+
+        if (configsReal.length === 0) {
+            throw new Error('Nenhuma configuração de Lucro Real cadastrada');
+        }
+
+        const config = configsReal[0];
+        const valores = faturamento.valores;
+        const baseCalculo = valores.baseCalculo || valores.faturamentoTotal || 0;
+
+        // Cálculos básicos
+        const calculos = {
+            valorImposto: 0,
+            detalhes: {},
+            dataCalculo: new Date().toISOString()
+        };
+
+        // Verificar isenções
+        const isentoIRPJ = config.isencaoIRPJ && baseCalculo <= config.isencaoIRPJ;
+        const isentoCSLL = config.isencaoCSLL && baseCalculo <= config.isencaoCSLL;
+
+        // IRPJ
+        let irpj = 0;
+        if (!isentoIRPJ) {
+            irpj = baseCalculo * (config.aliquotaIRPJ / 100);
+            
+            // Adicional IRPJ (se base > limite)
+            if (config.limiteAdicional && baseCalculo > config.limiteAdicional) {
+                const baseAdicional = baseCalculo - config.limiteAdicional;
+                irpj += baseAdicional * (config.adicionalIRPJ / 100);
+            }
+        }
+
+        // CSLL
+        let csll = 0;
+        if (!isentoCSLL) {
+            csll = baseCalculo * (config.aliquotaCSLL / 100);
+            
+            // CSLL Adicional
+            if (config.csllAdicional) {
+                csll += baseCalculo * (config.csllAdicional / 100);
+            }
+        }
+
+        // PIS/COFINS
+        const pis = baseCalculo * (config.pis / 100);
+        const cofins = baseCalculo * (config.cofins / 100);
+
+        // ISS/ICMS (simplificado)
+        const iss = valores.faturamentoServicos ? valores.faturamentoServicos * (config.iss / 100) : 0;
+        const icms = valores.faturamentoComercio ? valores.faturamentoComercio * (config.icms / 100) : 0;
+
+        // Total
+        calculos.valorImposto = irpj + csll + pis + cofins + iss + icms;
+        
+        // Detalhes
+        calculos.detalhes = {
+            irpj: { base: baseCalculo, valor: irpj, isento: isentoIRPJ },
+            csll: { base: baseCalculo, valor: csll, isento: isentoCSLL },
+            pis: { base: baseCalculo, valor: pis },
+            cofins: { base: baseCalculo, valor: cofins },
+            iss: { base: valores.faturamentoServicos || 0, valor: iss },
+            icms: { base: valores.faturamentoComercio || 0, valor: icms }
+        };
+
+        return calculos;
+    },
+    
+    /**
+     * Calcula o total do faturamento
+     */
+    calcularFaturamentoTotal: function(faturamento) {
+        if (!faturamento || !faturamento.valores) return 0;
+
+        switch (faturamento.regime) {
+            case 'simples':
+                // Somar todos os anexos
+                if (faturamento.valores.anexos) {
+                    return faturamento.valores.anexos.reduce((total, anexo) => {
+                        return total + (anexo.faturamentoTotal || 0);
+                    }, 0);
+                }
+                return faturamento.valores.faturamentoTotal || 0;
+
+            case 'presumido':
+            case 'real':
+                return faturamento.valores.faturamentoTotal || 0;
+
+            default:
+                return 0;
+        }
+    },
+    
+    /**
+     * Calcula RBT12 (Receita Bruta dos últimos 12 meses)
+     */
+    calcularRBT12: function(empresaCnpj, mes, ano) {
+        let total = 0;
+        
+        console.log(`🔍 Calculando RBT12 para mês ${mes}/${ano}`);
+        
+        // Calcular dos 12 meses ANTERIORES
+        for (let i = 1; i <= 12; i++) {
+            let mesCalculo = mes - i;
+            let anoCalculo = ano;
+            
+            // Ajustar para meses/anos anteriores
+            while (mesCalculo < 1) {
+                mesCalculo += 12;
+                anoCalculo -= 1;
+            }
+            
+            console.log(`  📅 Buscando mês ${mesCalculo}/${anoCalculo} (mês ${i} anterior)`);
+            
+            // Buscar faturamento do mês específico
+            const faturamento = DataStore.obterTodos('faturamentos', []).find(f => {
+                const mesmoCnpj = f.empresaCnpj === empresaCnpj || f.empresaId === empresaCnpj;
+                return mesmoCnpj && f.mes === mesCalculo && f.ano === anoCalculo;
+            });
+            
+            if (faturamento) {
+                const valor = this.calcularFaturamentoTotal(faturamento);
+                console.log(`    ✅ Encontrado: ${UIUtils.formatarMoeda(valor)}`);
+                total += valor;
+            } else {
+                console.log(`    ❌ Não encontrado`);
+            }
+        }
+        
+        console.log(`📊 RBT12 total: ${UIUtils.formatarMoeda(total)}`);
+        return total;
+    }
+};
+
+// Torna o módulo disponível globalmente
+window.CalculoCompartilhado = CalculoCompartilhado;
+
+// ==================== ABA: CÁLCULO ====================
+
+/**
+ * Inicializa a aba de cálculo
+ */
+function initCalculoAba() {
+    console.log('🧮 Inicializando aba de cálculo...');
+    
+    // 1. Configurar eventos
+    configurarEventosCalculo();
+    
+    // 2. Atualizar selects
+    atualizarSelectCalculo();
+    
+    console.log('✅ Aba de cálculo inicializada');
+}
+
+/**
+ * Configura os eventos da aba de cálculo
+ */
+function configurarEventosCalculo() {
+    // Botão calcular imposto
+    const btnCalcular = document.getElementById('btnCalcularImposto');
+    if (btnCalcular) {
+        btnCalcular.addEventListener('click', () => calcularImpostoAba());
+    }
+    
+    // Quando mudar o mês, limpar resultados
+    const inputMes = document.getElementById('mesCalculo');
+    if (inputMes) {
+        inputMes.addEventListener('change', () => {
+            document.getElementById('resultadoCalculo').classList.add('hidden');
+        });
+    }
+    
+    // Quando mudar a empresa, limpar resultados
+    const selectEmpresa = document.getElementById('cnpjCalculo');
+    if (selectEmpresa) {
+        selectEmpresa.addEventListener('change', () => {
+            document.getElementById('resultadoCalculo').classList.add('hidden');
+        });
+    }
+}
+
+/**
+ * Atualiza o select de empresas na aba de cálculo
+ */
+function atualizarSelectCalculo() {
+    const select = document.getElementById('cnpjCalculo');
+    if (!select) return;
+    
+    const empresas = DataStore.obterTodos('empresas', []);
+    
+    // Limpar e adicionar opção padrão
+    select.innerHTML = '<option value="">Selecione uma empresa...</option>';
+    
+    // Adicionar empresas
+    empresas.forEach(empresa => {
+        const option = document.createElement('option');
+        option.value = empresa.cnpj || empresa.id;
+        option.textContent = `${empresa.razaoSocial || 'Sem nome'} - ${empresa.cnpj || empresa.id}`;
+        select.appendChild(option);
+    });
+    
+    // Configurar mês atual como padrão
+    const inputMes = document.getElementById('mesCalculo');
+    if (inputMes) {
+        const hoje = new Date();
+        const mesAtual = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
+        inputMes.value = mesAtual;
+    }
+}
+
+/**
+ * Calcula o imposto na aba de cálculo
+ */
+async function calcularImpostoAba() {
+    console.log('🧮 Iniciando cálculo na aba de cálculo...');
+    
+    const empresaCnpj = document.getElementById('cnpjCalculo').value;
+    const mesAno = document.getElementById('mesCalculo').value;
+    
+    if (!empresaCnpj || !mesAno) {
+        UIUtils.mostrarToast('Selecione uma empresa e um mês/ano', 'error');
+        return;
+    }
+    
+    try {
+        UIUtils.mostrarToast('Calculando imposto...', 'info');
+        
+        // 1. Buscar dados da empresa
+        const empresa = buscarEmpresa(empresaCnpj);
+        if (!empresa) {
+            throw new Error('Empresa não encontrada');
+        }
+        
+        // 2. Separar mês e ano
+        const [ano, mes] = mesAno.split('-').map(Number);
+        
+        // 3. Buscar faturamento do mês
+        const faturamento = await buscarFaturamentoMes(empresaCnpj, mes, ano);
+        
+        if (!faturamento) {
+            throw new Error(`Não há faturamento registrado para ${getNomeMes(mes)}/${ano}. Registre primeiro na aba de faturamento.`);
+        }
+        
+        // 4. Buscar situação vigente
+        const situacao = await buscarSituacaoVigente(empresaCnpj, mes, ano);
+        
+        // 5. Calcular RBT12
+        const rbt12 = await calcularRBT12Aba(empresaCnpj, mes, ano);
+        
+        // 6. Calcular imposto conforme o regime
+        let resultado;
+        const regime = situacao?.regime || faturamento?.regime;
+        
+        switch (regime) {
+            case 'simples':
+                resultado = await calcularImpostoSimplesAba(faturamento, rbt12, situacao, empresaCnpj);
+                break;
+            case 'presumido':
+                resultado = await calcularImpostoPresumidoAba(faturamento);
+                break;
+            case 'real':
+                resultado = await calcularImpostoRealAba(faturamento);
+                break;
+            default:
+                throw new Error(`Regime tributário não identificado: ${regime}`);
+        }
+        
+        // 7. Adicionar informações extras com base no regime
+        resultado.regime = regime;
+        resultado.empresa = empresa.razaoSocial;
+        resultado.mes = mes;
+        resultado.ano = ano;
+        
+        // 8. Exibir resultados com mais detalhes
+        exibirResultadoCalculoDetalhado(empresa, mes, ano, resultado, faturamento);
+        
+    } catch (error) {
+        console.error('❌ Erro no cálculo:', error);
+        UIUtils.mostrarToast(`❌ Erro: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Busca uma empresa pelo CNPJ
+ */
+function buscarEmpresa(cnpj) {
+    const empresas = DataStore.obterTodos('empresas', []);
+    return empresas.find(e => e.cnpj === cnpj || e.id === cnpj);
+}
+
+/**
+ * Busca faturamento de um mês específico
+ */
+async function buscarFaturamentoMes(empresaCnpj, mes, ano) {
+    const faturamentos = DataStore.obterTodos('faturamentos', [])
+        .filter(f => {
+            const mesmoCnpj = f.empresaCnpj === empresaCnpj || f.empresaId === empresaCnpj;
+            return mesmoCnpj && f.mes === mes && f.ano === ano;
+        });
+    
+    return faturamentos.length > 0 ? faturamentos[0] : null;
+}
+
+/**
+ * Busca situação vigente em uma data
+ */
+async function buscarSituacaoVigente(empresaCnpj, mes, ano) {
+    const situacoes = DataStore.obterTodos('situacoes', [])
+        .filter(s => s.empresaCnpj === empresaCnpj || s.empresaId === empresaCnpj)
+        .sort((a, b) => new Date(b.dataSituacao) - new Date(a.dataSituacao));
+    
+    if (situacoes.length === 0) return null;
+    
+    const dataReferencia = new Date(ano, mes - 1, 1);
+    
+    // Encontrar situação vigente na data
+    for (const situacao of situacoes) {
+        const dataSituacao = new Date(situacao.dataSituacao);
+        if (dataSituacao <= dataReferencia) {
+            return situacao;
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Calcula RBT12 para a aba de cálculo
+ */
+async function calcularRBT12Aba(empresaCnpj, mes, ano) {
+    // Usar o módulo compartilhado
+    return CalculoCompartilhado.calcularRBT12(empresaCnpj, mes, ano);
+}
+
+/**
+ * Calcula o total do faturamento
+ */
+function calcularFaturamentoTotalAba(faturamento) {
+    // Usar o módulo compartilhado
+    return CalculoCompartilhado.calcularFaturamentoTotal(faturamento);
+}
+
+/**
+ * Calcula imposto do Simples Nacional para a aba de cálculo
+ */
+async function calcularImpostoSimplesAba(faturamento, rbt12, situacao, empresaCnpj) {
+    console.log('🧮 Calculando Simples Nacional na aba de cálculo...');
+    
+    // Usar o módulo compartilhado
+    const resultado = CalculoCompartilhado.calcularImpostoSimples(faturamento, rbt12, situacao, empresaCnpj);
+    
+    // Adicionar informações extras para a aba de cálculo
+    resultado.infoAdicional = {
+        formulaUsada: `Imposto = RBP × ([(RBT12 × Alíquota Nominal) - Dedução] ÷ RBT12)`,
+        exemploNumerico: `
+          • RBT12: ${UIUtils.formatarMoeda(rbt12)}
+          • RBP (Faturamento mês): ${UIUtils.formatarMoeda(resultado.rbp)}
+          • Alíquota Nominal: ${resultado.aliquotaNominal}%
+          • Alíquota Efetiva: ${resultado.aliquotaEfetiva.toFixed(2)}%
+          • Cálculo: ${UIUtils.formatarMoeda(resultado.rbp)} × ${resultado.aliquotaEfetiva.toFixed(2)}% = ${UIUtils.formatarMoeda(resultado.valorImposto)}
+        `,
+        observacoes: 'A alíquota efetiva é calculada com base no RBT12 e aplicada sobre o faturamento do mês (RBP)'
+    };
+    
+    return resultado;
+}
+
+/**
+ * Calcula imposto com uma faixa específica
+ */
+function calcularImpostoComFaixaAba(rbt12, faixa) {
+    const aliquotaDecimal = faixa.aliquota / 100;
+    const impostoBase = (rbt12 * aliquotaDecimal) - (faixa.valorDeduzir || 0);
+    
+    // Calcular repartição
+    const reparticao = {};
+    let totalReparticao = 0;
+    
+    if (faixa.reparticao) {
+        Object.entries(faixa.reparticao).forEach(([tributo, percentual]) => {
+            if (percentual > 0) {
+                const valorTributo = impostoBase * (percentual / 100);
+                reparticao[tributo] = {
+                    percentual,
+                    valor: valorTributo
+                };
+                totalReparticao += valorTributo;
+            }
+        });
+    }
+    
+    const impostoFinal = totalReparticao > 0 ? totalReparticao : Math.max(0, impostoBase);
+    const aliquotaEfetiva = rbt12 > 0 ? (impostoFinal / rbt12) * 100 : 0;
+    
+    return {
+        valorImposto: impostoFinal,
+        reparticao: reparticao,
+        rbt12: rbt12,
+        faixaUtilizada: faixa.nomeFaixa,
+        anexo: faixa.anexo,
+        aliquotaNominal: faixa.aliquota,
+        aliquotaEfetiva: aliquotaEfetiva,
+        deducaoAplicada: faixa.valorDeduzir || 0,
+        dataCalculo: new Date().toISOString()
+    };
+}
+
+/**
+ * Calcula imposto do Lucro Presumido para a aba de cálculo
+ */
+async function calcularImpostoPresumidoAba(faturamento) {
+    // Usar o módulo compartilhado
+    const resultado = CalculoCompartilhado.calcularImpostoPresumido(faturamento);
+    
+    // Adicionar informações extras
+    const faturamentoTotal = CalculoCompartilhado.calcularFaturamentoTotal(faturamento);
+    resultado.infoAdicional = {
+        formulaUsada: `Imposto = (Faturamento × Presunção × Alíquota) + Adicionais + PIS/COFINS + ISS/ICMS`,
+        exemploNumerico: `
+          • Faturamento: ${UIUtils.formatarMoeda(faturamentoTotal)}
+          • Presunção IRPJ: ${(resultado.detalhes.irpj.base / faturamentoTotal * 100).toFixed(1)}%
+          • Presunção CSLL: ${(resultado.detalhes.csll.base / faturamentoTotal * 100).toFixed(1)}%
+          • Total impostos: ${UIUtils.formatarMoeda(resultado.valorImposto)}
+        `
+    };
+    
+    return resultado;
+}
+
+/**
+ * Calcula imposto do Lucro Real para a aba de cálculo
+ */
+async function calcularImpostoRealAba(faturamento) {
+    // Usar o módulo compartilhado
+    const resultado = CalculoCompartilhado.calcularImpostoReal(faturamento);
+    
+    // Adicionar informações extras
+    const baseCalculo = faturamento.valores?.baseCalculo || faturamento.valores?.faturamentoTotal || 0;
+    resultado.infoAdicional = {
+        formulaUsada: `Imposto = (Base de Cálculo × Alíquota) + Adicionais + PIS + COFINS + ISS + ICMS`,
+        exemploNumerico: `
+          • Base de cálculo: ${UIUtils.formatarMoeda(baseCalculo)}
+          • Isenção IRPJ: ${resultado.detalhes.irpj.isento ? 'Sim' : 'Não'}
+          • Isenção CSLL: ${resultado.detalhes.csll.isento ? 'Sim' : 'Não'}
+          • Total impostos: ${UIUtils.formatarMoeda(resultado.valorImposto)}
+        `
+    };
+    
+    return resultado;
+}
+
+/**
+ * Exibe o resultado do cálculo com mais detalhes
+ */
+function exibirResultadoCalculoDetalhado(empresa, mes, ano, resultado, faturamento) {
+    const container = document.getElementById('resultadoCalculo');
+    const mesNome = getNomeMes(mes);
+	const regimeNome = window.getNomeRegime(resultado.regime);
+	const classeRegime = window.getClasseRegime(resultado.regime);
+    
+    // Calcular percentual do imposto sobre o faturamento
+    const faturamentoTotal = faturamento ? calcularFaturamentoTotalAba(faturamento) : 0;
+    const percentualSobreFaturamento = faturamentoTotal > 0 ? (resultado.valorImposto / faturamentoTotal) * 100 : 0;
+    
+    let html = `
+        <div class="space-y-6">
+            <!-- Cabeçalho -->
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800">Resultado do Cálculo Detalhado</h3>
+                    <p class="text-sm text-gray-600">${empresa.razaoSocial} - ${mesNome}/${ano}</p>
+                </div>
+                <span class="px-3 py-1 text-sm rounded-full class="${classeRegime}">
+                    ${regimeNome}
+                </span>
+            </div>
+            
+            <!-- Resumo Geral -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <p class="text-sm text-blue-700 font-medium">Faturamento Total (RBP)</p>
+                    <p class="text-xl font-bold text-blue-800">${UIUtils.formatarMoeda(faturamentoTotal)}</p>
+                </div>
+                <div class="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                    <p class="text-sm text-purple-700 font-medium">RBT12 (12 meses)</p>
+                    <p class="text-xl font-bold text-purple-800">${UIUtils.formatarMoeda(resultado.rbt12 || 0)}</p>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg border border-green-100">
+                    <p class="text-sm text-green-700 font-medium">Imposto Total</p>
+                    <p class="text-xl font-bold text-green-800">${UIUtils.formatarMoeda(resultado.valorImposto)}</p>
+                </div>
+                <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-100">
+                    <p class="text-sm text-yellow-700 font-medium">% sobre Faturamento</p>
+                    <p class="text-xl font-bold text-yellow-800">${percentualSobreFaturamento.toFixed(2)}%</p>
+                </div>
+            </div>
+    `;
+    
+    // Detalhes específicos por regime
+    if (resultado.regime === 'simples') {
+        html += `
+            <!-- Informações do Simples -->
+            <div class="border-t pt-6">
+                <h4 class="font-bold text-gray-700 mb-3">📊 Detalhes do Cálculo - Simples Nacional</h4>
+                
+                <!-- Informações da faixa -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">Faixa Aplicada</p>
+                        <p class="font-medium">${resultado.faixaUtilizada || 'Não informada'}</p>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">Anexo</p>
+                        <p class="font-medium">${resultado.anexo || 'Não especificado'}</p>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">Alíquota Nominal</p>
+                        <p class="font-medium">${resultado.aliquotaNominal || 0}%</p>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">Alíquota Efetiva</p>
+                        <p class="font-medium">${resultado.aliquotaEfetiva?.toFixed(2) || '0'}%</p>
+                    </div>
+                </div>
+                
+                <!-- Fórmula e explicação -->
+                <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                    <h5 class="font-medium text-blue-800 mb-2">🧮 Fórmula Aplicada</h5>
+                    <p class="text-sm text-blue-700 mb-2">${resultado.infoAdicional?.formulaUsada || ''}</p>
+                    <div class="text-xs text-blue-600 space-y-1">
+                        ${(resultado.infoAdicional?.exemploNumerico || '').split('\n').map(line => line.trim()).filter(line => line).map(line => `<p>${line}</p>`).join('')}
+                    </div>
+                </div>
+                
+                <!-- Repartição dos Tributos -->
+                ${Object.keys(resultado.reparticao || {}).length > 0 ? `
+                    <div class="mt-4">
+                        <h5 class="text-sm font-medium text-gray-700 mb-2">📋 Repartição dos Tributos</h5>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            ${Object.entries(resultado.reparticao).map(([tributo, dados]) => `
+                                <div class="bg-white border p-2 rounded hover:bg-gray-50 transition-colors">
+                                    <p class="text-xs font-medium text-gray-600">${tributo}</p>
+                                    <p class="font-medium text-sm">${UIUtils.formatarMoeda(dados.valor)}</p>
+                                    <div class="flex justify-between text-xs text-gray-500">
+                                        <span>${dados.percentual}%</span>
+                                        <span>${(dados.valor / resultado.valorImposto * 100).toFixed(1)}% do total</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    } else if (resultado.regime === 'presumido' || resultado.regime === 'real') {
+        html += `
+            <!-- Detalhes de Presumido/Real -->
+            <div class="border-t pt-6">
+                <h4 class="font-bold text-gray-700 mb-3">📊 Detalhes do Cálculo - ${regimeNome}</h4>
+                
+                <!-- Fórmula e explicação -->
+                <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                    <h5 class="font-medium text-blue-800 mb-2">🧮 Fórmula Aplicada</h5>
+                    <p class="text-sm text-blue-700 mb-2">${resultado.infoAdicional?.formulaUsada || ''}</p>
+                    <div class="text-xs text-blue-600 space-y-1">
+                        ${(resultado.infoAdicional?.exemploNumerico || '').split('\n').map(line => line.trim()).filter(line => line).map(line => `<p>${line}</p>`).join('')}
+                    </div>
+                </div>
+                
+                <!-- Detalhes dos tributos -->
+                <div class="space-y-3">
+                    <h5 class="text-sm font-medium text-gray-700 mb-2">📋 Tributos Calculados</h5>
+                    ${Object.entries(resultado.detalhes || {}).map(([tributo, dados]) => `
+                        <div class="flex justify-between items-center border-b pb-2 hover:bg-gray-50 p-2 rounded">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-medium text-sm">${tributo.toUpperCase()}</span>
+                                    ${dados.isento ? '<span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Isento</span>' : ''}
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">Base: ${UIUtils.formatarMoeda(dados.base)}</div>
+                            </div>
+                            <div class="text-right">
+                                <div class="font-medium">${UIUtils.formatarMoeda(dados.valor)}</div>
+                                <div class="text-xs text-gray-500">
+                                    ${dados.base > 0 ? `${((dados.valor / dados.base) * 100).toFixed(1)}% da base` : '-'}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += `
+            <!-- Informações do Cálculo -->
+            <div class="border-t pt-6">
+                <div class="flex justify-between items-center text-sm text-gray-500">
+                    <div class="space-y-1">
+                        <div>
+                            <i class="fas fa-calendar-alt mr-1"></i>
+                            Calculado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}
+                        </div>
+                        <div>
+                            <i class="fas fa-info-circle mr-1"></i>
+                            ${resultado.infoAdicional?.observacoes || 'Cálculo realizado com base nos parâmetros cadastrados'}
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btnSalvarCalculo" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg">
+                            <i class="fas fa-save mr-1"></i> Salvar Cálculo
+                        </button>
+                        <button id="btnCopiarResumo" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm rounded-lg">
+                            <i class="fas fa-copy mr-1"></i> Copiar Resumo
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+    container.classList.remove('hidden');
+    
+    // Adicionar eventos aos botões
+    document.getElementById('btnSalvarCalculo').addEventListener('click', () => {
+        if (faturamento) {
+            salvarCalculoSecundario(faturamento.id, resultado);
+        } else {
+            UIUtils.mostrarToast('Não é possível salvar cálculo sem faturamento registrado', 'warning');
+        }
+    });
+    
+    document.getElementById('btnCopiarResumo').addEventListener('click', () => {
+        const resumo = `
+Resumo do Cálculo - ${empresa.razaoSocial} - ${mesNome}/${ano}
+
+Faturamento Total: ${UIUtils.formatarMoeda(faturamentoTotal)}
+RBT12 (12 meses): ${UIUtils.formatarMoeda(resultado.rbt12 || 0)}
+Imposto Total: ${UIUtils.formatarMoeda(resultado.valorImposto)}
+% sobre Faturamento: ${percentualSobreFaturamento.toFixed(2)}%
+
+Regime: ${regimeNome}
+        `;
+        
+        navigator.clipboard.writeText(resumo).then(() => {
+            UIUtils.mostrarToast('✅ Resumo copiado para a área de transferência!', 'success');
+        }).catch(err => {
+            console.error('Erro ao copiar:', err);
+        });
+    });
+    
+    // Rolar até o resultado
+    container.scrollIntoView({ behavior: 'smooth' });
+}
+
+/**
+ * Salva cálculo como secundário
+ */
+function salvarCalculoSecundario(faturamentoId, resultado) {
+    try {
+        const faturamentos = DataStore.obterTodos('faturamentos', []);
+        const faturamentoIndex = faturamentos.findIndex(f => f.id === faturamentoId);
+        
+        if (faturamentoIndex === -1) {
+            throw new Error('Faturamento não encontrado');
+        }
+        
+        // Adicionar cálculo secundário
+        if (!faturamentos[faturamentoIndex].calculosSecundarios) {
+            faturamentos[faturamentoIndex].calculosSecundarios = [];
+        }
+        
+        // Marcar como cálculo secundário
+        resultado.tipo = 'secundario';
+        resultado.dataCriacao = new Date().toISOString();
+        
+        faturamentos[faturamentoIndex].calculosSecundarios.push(resultado);
+        faturamentos[faturamentoIndex].dataAtualizacao = new Date().toISOString();
+        
+        // Salvar
+        localStorage.setItem('faturamentos', JSON.stringify(faturamentos));
+        
+        UIUtils.mostrarToast('✅ Cálculo salvo como secundário com sucesso!', 'success');
+        
+    } catch (error) {
+        console.error('❌ Erro ao salvar cálculo secundário:', error);
+        UIUtils.mostrarToast(`❌ Erro ao salvar: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Funções auxiliares
+ */
+function getNomeMes(mes) {
+    const meses = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[mes - 1] || `Mês ${mes}`;
+}
+
+// ==================== FUNÇÕES PARA PARAMETRIZAÇÃO ====================
+
+/**
+ * Inicializa os listeners da aba de parametrização
+ */
+function initParametrizacaoListeners() {
+    console.log('🔧 Inicializando listeners de parametrização...');
+    
+    // Verificar se estamos na aba de parametrização
+    if (!document.getElementById('parametrosTab')) {
+        console.warn('Aba de parametrização não encontrada');
+        return;
+    }
+    
+    // 1. CONFIGURAR SUBTABS (Simples, Presumido, Real)
+    configurarSubTabs();
+    
+    // 2. CONFIGURAR GERENCIAMENTO DE DADOS
+    configurarGerenciamentoDados();
+    
+    // 3. INICIALIZAR CONTROLLER DE PARAMETRIZAÇÃO
+    inicializarParametrizacaoController();
+    
+    // 4. CARREGAR DADOS INICIAIS
+    carregarDadosParametrizacao();
+    
+    console.log('✅ Listeners de parametrização inicializados');
+}
+
+/**
+ * Configura a navegação entre subtabs (Simples, Presumido, Real)
+ */
+function configurarSubTabs() {
+    const subTabButtons = document.querySelectorAll('.sub-tab-button');
+    
+    subTabButtons.forEach(btn => {
+        // Remover listeners antigos para evitar duplicação
+        btn.replaceWith(btn.cloneNode(true));
+    });
+    
+    // Re-selecionar após clonar
+    document.querySelectorAll('.sub-tab-button').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const subTabId = e.currentTarget.getAttribute('data-subtab');
+            switchSubTab(subTabId);
+        });
+    });
+}
+
+/**
+ * Muda entre as subtabs de parametrização
+ */
+function switchSubTab(subTabId) {
+    console.log(`🔄 Mudando para subtab: ${subTabId}`);
+    
+    // Atualizar botões ativos
+    document.querySelectorAll('.sub-tab-button').forEach(el => {
+        el.classList.remove('bg-white', 'shadow-sm', 'text-brand-700', 'border-brand-100');
+        el.classList.add('text-gray-600', 'hover:bg-white', 'border-transparent');
+    });
+    
+    const btnAtivo = document.querySelector(`[data-subtab="${subTabId}"]`);
+    if (btnAtivo) {
+        btnAtivo.classList.add('bg-white', 'shadow-sm', 'text-brand-700', 'border-brand-100');
+        btnAtivo.classList.remove('text-gray-600', 'hover:bg-white', 'border-transparent');
+    }
+    
+    // Esconder todos os conteúdos
+    document.querySelectorAll('.sub-tab-content').forEach(el => {
+        el.classList.add('hidden');
+        el.classList.remove('active');
+    });
+    
+    // Mostrar conteúdo da subtab selecionada
+    const tabElement = document.getElementById(subTabId + 'Tab');
+    if (tabElement) {
+        tabElement.classList.remove('hidden');
+        tabElement.classList.add('active');
+    }
+    
+    // Atualizar o regime atual no controller se existir
+    if (window.parametrizacaoController) {
+        window.parametrizacaoController.regimeAtual = subTabId;
+    }
+    
+    // Carregar dados específicos da subtab
+    setTimeout(() => {
+        switch(subTabId) {
+            case 'simples':
+                if (window.parametrizacaoController && typeof window.parametrizacaoController.carregarDadosSimples === 'function') {
+                    window.parametrizacaoController.carregarDadosSimples();
+                }
+                break;
+            case 'presumido':
+                if (window.parametrizacaoController && typeof window.parametrizacaoController.carregarDadosPresumido === 'function') {
+                    window.parametrizacaoController.carregarDadosPresumido();
+                }
+                break;
+            case 'real':
+                if (window.parametrizacaoController && typeof window.parametrizacaoController.carregarDadosReal === 'function') {
+                    window.parametrizacaoController.carregarDadosReal();
+                }
+                break;
+        }
+    }, 100);
+}
+
+/**
+ * Configura o gerenciamento de dados
+ */
+function configurarGerenciamentoDados() {
+    // Botão toggle para expandir/recolher
+    const toggleBtn = document.getElementById('toggleGerenciamento');
+    if (toggleBtn) {
+        // Remover listener antigo
+        const newToggleBtn = toggleBtn.cloneNode(true);
+        toggleBtn.parentNode.replaceChild(newToggleBtn, toggleBtn);
+        
+        // Adicionar novo listener
+        document.getElementById('toggleGerenciamento').addEventListener('click', toggleGerenciamentoDados);
+    }
+    
+    // Botão exportar dados
+    const btnExportar = document.getElementById('exportarDados');
+    if (btnExportar) {
+        btnExportar.addEventListener('click', () => exportarDadosBackup());
+    }
+    
+    // Botão importar dados
+    const btnImportar = document.getElementById('importarDadosBtn');
+    if (btnImportar) {
+        btnImportar.addEventListener('click', () => document.getElementById('fileImport')?.click());
+    }
+    
+    // Input de arquivo para importação
+    const inputFile = document.getElementById('fileImport');
+    if (inputFile) {
+        inputFile.addEventListener('change', (e) => importarDadosBackup(e));
+    }
+    
+    // Botão resetar dados de teste
+    const btnResetarTeste = document.getElementById('resetarDadosTeste');
+    if (btnResetarTeste) {
+        btnResetarTeste.addEventListener('click', () => resetarDadosTeste());
+    }
+    
+    // Botão limpar tudo
+    const btnLimparTudo = document.getElementById('limparTudo');
+    if (btnLimparTudo) {
+        btnLimparTudo.addEventListener('click', () => confirmarLimparTodosDados());
+    }
+}
+
+/**
+ * Inicializa o controller de parametrização
+ */
+function inicializarParametrizacaoController() {
+    if (!window.parametrizacaoController) {
+        try {
+            // Verificar se o arquivo do controller está carregado
+            if (typeof ParametrizacaoController === 'undefined') {
+                console.warn('ParametrizacaoController não encontrado. Carregando...');
+                // Tentar carregar dinamicamente (em um cenário real, você teria um loader de módulos)
+                // Por enquanto, apenas mostra mensagem
+                UIUtils.mostrarToast('Aguarde, carregando módulo de parametrização...', 'info');
+                
+                // Tentar novamente após um delay
+                setTimeout(() => {
+                    if (typeof ParametrizacaoController !== 'undefined') {
+                        window.parametrizacaoController = new ParametrizacaoController();
+                        console.log('✅ ParametrizacaoController inicializado com atraso');
+                    } else {
+                        console.error('❌ ParametrizacaoController ainda não disponível');
+                        UIUtils.mostrarToast('Erro ao carregar módulo de parametrização. Recarregue a página.', 'error');
+                    }
+                }, 1000);
+            } else {
+                window.parametrizacaoController = new ParametrizacaoController();
+                console.log('✅ ParametrizacaoController inicializado');
+            }
+        } catch (error) {
+            console.error('❌ Erro ao inicializar ParametrizacaoController:', error);
+            UIUtils.mostrarToast('Erro ao inicializar parametrização: ' + error.message, 'error');
+        }
+    } else {
+        console.log('✅ ParametrizacaoController já está inicializado');
+    }
+}
+
+/**
+ * Carrega os dados iniciais da parametrização
+ */
+function carregarDadosParametrizacao() {
+    console.log('📥 Carregando dados de parametrização...');
+    
+    // Atualizar contadores
+    atualizarContadoresDados();
+    
+    // Calcular armazenamento
+    calcularArmazenamentoLocal();
+    
+    // Carregar dados da subtab ativa
+    const subtabAtiva = document.querySelector('.sub-tab-content.active');
+    if (subtabAtiva) {
+        const subtabId = subtabAtiva.id.replace('Tab', '');
+        
+        setTimeout(() => {
+            switch(subtabId) {
+                case 'simples':
+                    if (window.parametrizacaoController && typeof window.parametrizacaoController.carregarDadosSimples === 'function') {
+                        window.parametrizacaoController.carregarDadosSimples();
+                    }
+                    break;
+                case 'presumido':
+                    if (window.parametrizacaoController && typeof window.parametrizacaoController.carregarDadosPresumido === 'function') {
+                        window.parametrizacaoController.carregarDadosPresumido();
+                    }
+                    break;
+                case 'real':
+                    if (window.parametrizacaoController && typeof window.parametrizacaoController.carregarDadosReal === 'function') {
+                        window.parametrizacaoController.carregarDadosReal();
+                    }
+                    break;
+            }
+        }, 300);
+    }
+}
+
+/**
+ * Atualiza os contadores de dados na interface
+ */
+function atualizarContadoresDados() {
+    try {
+        const empresas = DataStore.obterTodos('empresas', []).length;
+        const situacoes = DataStore.obterTodos('situacoes', []).length;
+        const faturamentos = DataStore.obterTodos('faturamentos', []).length;
+        const faixasSimples = DataStore.obterTodos('faixasSimples', []).length;
+        const configsPresumido = DataStore.obterTodos('configsPresumido', []).length;
+        const configsReal = DataStore.obterTodos('configsReal', []).length;
+        
+        // Atualizar elementos da interface
+        const contadorEmpresas = document.getElementById('contadorEmpresas');
+        const contadorSituacoes = document.getElementById('contadorSituacoes');
+        const contadorFaturamentos = document.getElementById('contadorFaturamentos');
+        
+        if (contadorEmpresas) contadorEmpresas.textContent = empresas;
+        if (contadorSituacoes) contadorSituacoes.textContent = situacoes;
+        if (contadorFaturamentos) contadorFaturamentos.textContent = faturamentos;
+        
+        // Mostrar/ocultar status
+        const statusElement = document.getElementById('statusDados');
+        if (statusElement) {
+            if (empresas + situacoes + faturamentos > 0) {
+                statusElement.classList.remove('hidden');
+            } else {
+                statusElement.classList.add('hidden');
+            }
+        }
+        
+        console.log(`📊 Dados: ${empresas} empresas, ${situacoes} situações, ${faturamentos} faturamentos`);
+        console.log(`📊 Parâmetros: ${faixasSimples} faixas Simples, ${configsPresumido} Presumido, ${configsReal} Real`);
+        
+    } catch (error) {
+        console.error('❌ Erro ao atualizar contadores:', error);
+    }
+}
+
+/**
+ * Calcula e exibe o armazenamento local utilizado
+ */
+function calcularArmazenamentoLocal() {
+    try {
+        let total = 0;
+        const chaves = [
+            'empresas', 'situacoes', 'faturamentos', 
+            'faixasSimples', 'configsPresumido', 'configsReal'
+        ];
+        
+        chaves.forEach(chave => {
+            const dados = localStorage.getItem(chave);
+            if (dados) {
+                total += new Blob([dados]).size;
+            }
+        });
+        
+        const tamanhoKB = (total / 1024).toFixed(2);
+        const tamanhoMB = (total / (1024 * 1024)).toFixed(3);
+        
+        const armazenamentoElement = document.getElementById('armazenamentoLocal');
+        if (armazenamentoElement) {
+            if (total > 1024 * 1024) {
+                armazenamentoElement.textContent = `${tamanhoMB} MB`;
+            } else {
+                armazenamentoElement.textContent = `${tamanhoKB} KB`;
+            }
+        }
+        
+        // Atualizar data do último backup
+        const ultimoBackupElement = document.getElementById('ultimoBackup');
+        if (ultimoBackupElement) {
+            const backupData = localStorage.getItem('ultimoBackup');
+            if (backupData) {
+                const data = new Date(backupData);
+                ultimoBackupElement.textContent = data.toLocaleDateString('pt-BR');
+                ultimoBackupElement.title = `Último backup: ${data.toLocaleString('pt-BR')}`;
+            }
+        }
+        
+        return total;
+    } catch (error) {
+        console.error('❌ Erro ao calcular armazenamento:', error);
+        return 0;
+    }
+}
+
+/**
+ * Exporta backup dos dados
+ */
+function exportarDadosBackup() {
+    try {
+        if (typeof DataStore === 'undefined') {
+            UIUtils.mostrarToast('Erro: Módulo de dados não carregado', 'error');
+            return;
+        }
+        
+        const dados = DataStore.exportarDados();
+        const dataStr = JSON.stringify(dados, null, 2);
+        const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+        
+        const dataAtual = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const horaAtual = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
+        const exportFileDefaultName = `backup-caderno-contabil-${dataAtual}_${horaAtual}.json`;
+        
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', exportFileDefaultName);
+        linkElement.click();
+        
+        // Salvar data do último backup
+        localStorage.setItem('ultimoBackup', new Date().toISOString());
+        
+        UIUtils.mostrarToast(`✅ Backup exportado com sucesso! (${exportFileDefaultName})`, 'success');
+        
+        // Atualizar interface
+        calcularArmazenamentoLocal();
+        
+    } catch (error) {
+        console.error('❌ Erro ao exportar backup:', error);
+        UIUtils.mostrarToast(`❌ Erro ao exportar: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Importa dados de backup
+ */
+function importarDadosBackup(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Validar tipo de arquivo
+    if (!file.name.endsWith('.json')) {
+        UIUtils.mostrarToast('❌ Arquivo inválido. Use um arquivo .json', 'error');
+        event.target.value = '';
+        return;
+    }
+    
+    // Validar tamanho (máximo 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+        UIUtils.mostrarToast('❌ Arquivo muito grande. Máximo 10MB', 'error');
+        event.target.value = '';
+        return;
+    }
+    
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        try {
+            const dados = JSON.parse(e.target.result);
+            
+            // Validar estrutura básica do backup
+            if (!dados.empresas || !dados.faixasSimples) {
+                UIUtils.mostrarToast('❌ Arquivo de backup inválido ou corrompido', 'error');
+                event.target.value = '';
+                return;
+            }
+            
+            // Confirmar importação
+            if (confirm(`Importar backup "${file.name}"?\n\nIsso substituirá todos os dados atuais.\n\nContinuar?`)) {
+                const resultado = DataStore.importarDados(dados);
+                
+                if (resultado.success) {
+                    UIUtils.mostrarToast('✅ Dados importados com sucesso! Recarregando...', 'success');
+                    
+                    // Recarregar todas as listas
+                    setTimeout(() => {
+                        if (window.parametrizacaoController) {
+                            window.parametrizacaoController.carregarDadosSimples();
+                            window.parametrizacaoController.carregarDadosPresumido();
+                            window.parametrizacaoController.carregarDadosReal();
+                        }
+                        
+                        // Recarregar outras abas
+                        if (window.empresaController && typeof window.empresaController.carregarListaEmpresas === 'function') {
+                            window.empresaController.carregarListaEmpresas();
+                        }
+                        
+                        if (window.faturamentoController && typeof window.faturamentoController.carregarListaFaturamento === 'function') {
+                            window.faturamentoController.carregarListaFaturamento();
+                        }
+                        
+                        // Atualizar selects globais
+                        if (window.UIUtils && typeof window.UIUtils.atualizarSelects === 'function') {
+							window.UIUtils.atualizarSelects();
+						}
+                        
+                        // Atualizar contadores
+                        atualizarContadoresDados();
+                        calcularArmazenamentoLocal();
+                        
+                    }, 500);
+                } else {
+                    UIUtils.mostrarToast(`❌ Erro ao importar: ${resultado.error}`, 'error');
+                }
+            }
+        } catch (error) {
+            console.error('❌ Erro ao ler arquivo:', error);
+            UIUtils.mostrarToast(`❌ Erro ao ler arquivo: ${error.message}`, 'error');
+        }
+        
+        // Limpar input
+        event.target.value = '';
+    };
+    
+    reader.onerror = () => {
+        UIUtils.mostrarToast('❌ Erro ao ler o arquivo', 'error');
+        event.target.value = '';
+    };
+    
+    reader.readAsText(file);
+}
+
+/**
+ * Reseta com dados de teste
+ */
+function resetarDadosTeste() {
+    if (confirm('Carregar dados de teste?\n\nIsso substituirá alguns dados atuais por exemplos práticos.\n\nContinuar?')) {
+        UIUtils.mostrarToast('⏳ Carregando dados de teste...', 'info');
+        
+        // Implementação dos dados de teste
+        setTimeout(() => {
+            try {
+                // Dados de exemplo para Simples Nacional
+                const faixasTeste = [
+                    {
+                        id: 'faixa-teste-1',
+                        anexo: 'I',
+                        vigencia: '2024-01-01',
+                        nomeFaixa: 'Faixa 1 - Até R$ 180.000,00',
+                        aliquota: 4.0,
+                        rbtInicio: 0,
+                        rbtFim: 180000,
+                        valorDeduzir: 0,
+                        reparticao: {
+                            IRPJ: 5.0,
+                            CSLL: 3.5,
+                            COFINS: 12.8,
+                            PIS: 2.78,
+                            CPP: 41.92,
+                            ICMS: 33.5,
+                            ISS: 0.5,
+                            IPI: 0
+                        },
+                        dataCadastro: new Date().toISOString(),
+                        dataAtualizacao: new Date().toISOString()
+                    }
+                ];
+                
+                // Salvar dados de teste
+                localStorage.setItem('faixasSimples', JSON.stringify(faixasTeste));
+                
+                UIUtils.mostrarToast('✅ Dados de teste carregados com sucesso!', 'success');
+                
+                // Recarregar listas
+                if (window.parametrizacaoController) {
+                    window.parametrizacaoController.carregarDadosSimples();
+                }
+                
+                // Atualizar contadores
+                atualizarContadoresDados();
+                calcularArmazenamentoLocal();
+                
+            } catch (error) {
+                console.error('❌ Erro ao carregar dados de teste:', error);
+                UIUtils.mostrarToast(`❌ Erro: ${error.message}`, 'error');
+            }
+        }, 1000);
+    }
+}
+
+/**
+ * Confirma limpeza total dos dados
+ */
+function confirmarLimparTodosDados() {
+    if (confirm('⚠️ ATENÇÃO: Isso apagará TODOS os dados do sistema!\n\nInclui:\n• Todas as empresas\n• Todas as situações tributárias\n• Todos os faturamentos\n• Todas as configurações\n\nEsta ação NÃO pode ser desfeita!\n\nContinuar?')) {
+        localStorage.clear();
+        UIUtils.mostrarToast('✅ Todos os dados foram removidos. Recarregando...', 'success');
+        
+        setTimeout(() => {
+            location.reload();
+        }, 1500);
+    }
+}
+
+/**
+ * Expandir/recolher seção de gerenciamento de dados
+ */
+function toggleGerenciamentoDados() {
+    const container = document.getElementById('gerenciamentoDadosContainer');
+    const toggleBtn = document.getElementById('toggleGerenciamento');
+    
+    if (!container || !toggleBtn) return;
+    
+    const icon = toggleBtn.querySelector('i');
+    
+    if (container.classList.contains('hidden')) {
+        // Expandir
+        container.classList.remove('hidden');
+        container.style.maxHeight = container.scrollHeight + 'px';
+        icon.className = 'fas fa-chevron-up';
+        
+        // Atualizar dados
+        atualizarContadoresDados();
+        calcularArmazenamentoLocal();
+        
+        // Animar
+        setTimeout(() => {
+            container.style.opacity = '1';
+        }, 10);
+    } else {
+        // Recolher
+        container.style.opacity = '0';
+        container.style.maxHeight = '0px';
+        icon.className = 'fas fa-chevron-down';
+        
+        setTimeout(() => {
+            container.classList.add('hidden');
+        }, 300);
+    }
+}
+
+// ==================== 2. FUNÇÕES STUB (PARA FUNCIONALIDADES FUTURAS) ====================
+
+// 2.1 Funções para outras abas (implementações mínimas)
+function toggleRegrasSimples() {
+    UIUtils.mostrarToast('Funcionalidade "Toggle Regras Simples" em desenvolvimento', 'info');
+}
+
+function calcularSomaReparticao() {
+    console.log('Calculando soma da repartição...');
+}
+
+function carregarResumo() {
+  //  UIUtils.mostrarToast('Funcionalidade "Carregar Resumo" em desenvolvimento', 'info');
+}
+
+function calcularMesesFaltantes() {
+    UIUtils.mostrarToast('Funcionalidade "Calcular Meses Faltantes" em desenvolvimento', 'info');
+}
+
+// ==================== 3. INICIALIZAÇÃO ====================
+
+// 3.1 Aguardar DOM carregar
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📄 DOM carregado');
+    
+    initApp();
+    
+    // Inicializar UIUtils (gerencia layout completo)
+    if (typeof UIUtils !== 'undefined') {
+        console.log('🔧 Inicializando UIUtils...');
+        UIUtils.inicializarLayout();
+    }
+    
+    // Inicializar abas específicas se já estiverem ativas
+    setTimeout(() => {
+        // Verificar se já está na aba de cadastro
+        const cadastroTab = document.getElementById('cadastroTab');
+        if (cadastroTab && !cadastroTab.classList.contains('hidden')) {
+            console.log('📌 Já está na aba de cadastro, inicializando controllers...');
+            initEmpresaAba();
+            initSituacaoAba();
+            
+            // Configurar abas internas e carregar conteúdo
+            setTimeout(() => {
+                configurarAbasInternasCadastro();
+                
+                // Forçar carregamento da aba empresas (que é a padrão)
+                const empresasContent = document.getElementById('empresasContent');
+                if (empresasContent && empresasContent.classList.contains('active')) {
+                    carregarEmpresasGrid();
+                }
+            }, 400);
+        }
+        
+        // Outras abas...
+        if (document.getElementById('situacaoTab')?.classList.contains('active')) {
+            initSituacaoAba();
+        }
+        
+        if (document.getElementById('parametrosTab')?.classList.contains('active')) {
+            initParametrizacaoListeners();
+        }
+        
+        if (document.getElementById('calculoTab')?.classList.contains('active')) {
+            initCalculoAba();
+        }
+    }, 500);
+    
+    // Atualizar selects usando UIUtils
+    setTimeout(() => {
+        if (window.UIUtils && typeof window.UIUtils.atualizarSelects === 'function') {
+            window.UIUtils.atualizarSelects();
+        }
+    }, 300);
+	
+	// Configurar listeners básicos restantes
+    setupBasicListeners();
+    
+    console.log('✅ Sistema totalmente inicializado');
+});
+
+// 3.2 Configurar listeners básicos
+function setupBasicListeners() {
+    console.log('Configurando listeners básicos...');
+    
+    // Configurar abas internas do cadastro
+    configurarAbasInternasCadastro();
+	
+	// Botão de carregar resumo
+    const btnCarregarResumo = document.getElementById('btnCarregarResumo');
+    if (btnCarregarResumo) {
+        btnCarregarResumo.addEventListener('click', carregarResumo);
+    }
+    
+    // Botão de calcular meses faltantes
+    const btnCalcularMeses = document.getElementById('btnCalcularMesesFaltantes');
+    if (btnCalcularMeses) {
+        btnCalcularMeses.addEventListener('click', calcularMesesFaltantes);
+    }
+    
+    // Botão de exportar dados
+    const btnExportarDados = document.getElementById('exportarDados');
+    if (btnExportarDados) {
+        btnExportarDados.addEventListener('click', function() {
+            UIUtils.mostrarToast('Funcionalidade de exportação em desenvolvimento', 'info');
+        });
+    }
+}
+
+// ==================== 4. FUNÇÕES GLOBAIS PARA DEBUG ====================
+
+// 4.1 Debug do sistema
+window.debugSistema = function() {
+    console.log('=== DEBUG DO SISTEMA ===');
+    
+    // Verificar DataStore
+    if (typeof DataStore !== 'undefined') {
+        console.log('✅ DataStore disponível');
+        try {
+            const empresas = DataStore.obterTodos('empresas', []);
+            console.log(`Empresas: ${empresas.length}`);
+            console.log('Detalhes:', empresas);
+        } catch (e) {
+            console.error('Erro ao acessar DataStore:', e);
+        }
+    } else {
+        console.log('❌ DataStore NÃO disponível');
+    }
+    
+    // Verificar localStorage
+    console.log('LocalStorage:');
+    console.log('- empresas:', JSON.parse(localStorage.getItem('empresas') || '[]').length);
+    console.log('- faixasSimples:', JSON.parse(localStorage.getItem('faixasSimples') || '[]').length);
+    console.log('- situacoes:', JSON.parse(localStorage.getItem('situacoes') || '[]').length);
+    console.log('- faturamentos:', JSON.parse(localStorage.getItem('faturamentos') || '[]').length);
+    
+    console.log('=== FIM DEBUG ===');
+};
+
+// 4.2 Verificar status
+window.verificarStatus = function() {
+    console.log('=== STATUS DO SISTEMA ===');
+    console.log('switchTab:', typeof switchTab === 'function' ? '✅ Disponível' : '❌ Indisponível');
+    console.log('UIUtils.mostrarToast:', typeof UIUtils.mostrarToast === 'function' ? '✅ Disponível' : '❌ Indisponível');
+    console.log('atualizarSelects:', typeof atualizarSelects === 'function' ? '✅ Disponível' : '❌ Indisponível');
+    console.log('DataStore:', typeof DataStore !== 'undefined' ? '✅ Disponível' : '❌ Indisponível');
+    console.log('=== FIM STATUS ===');
+};
+
+// 4.3 Limpar dados
+window.limparTodosDados = function() {
+    if (confirm('ATENÇÃO: Isso apagará TODOS os dados. Continuar?')) {
+        localStorage.clear();
+        UIUtils.mostrarToast('Todos os dados removidos. Recarregando...', 'success');
+        setTimeout(() => location.reload(), 1000);
+    }
+};
+
+window.tabEmpresas = function() {
+    alternarAba('empresas');
+};
+
+window.tabSituacoes = function() {
+    alternarAba('situacoes');
+};

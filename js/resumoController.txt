@@ -1,0 +1,1741 @@
+// js/resumoController.js
+/**
+ * CONTROLLER DE RESUMO - Resumo anual de faturamento e impostos
+ * Fluxo 5 do sistema: Resumo Anual
+ */
+ 
+ // Verificar se o módulo compartilhado está disponível
+if (typeof CalculoCompartilhado === 'undefined') {
+    console.error('❌ Módulo CalculoCompartilhado não encontrado!');
+    // Carregar o módulo se não estiver disponível   
+}
+
+class ResumoController {
+    constructor() {
+        this.empresaSelecionada = null;
+        this.anoSelecionado = null;
+        this.dadosEmpresa = null;
+        this.faturamentosAno = [];
+        this.situacoesAno = [];
+        
+        this.inicializar();
+    }
+
+    inicializar() {
+        console.log('✅ Inicializando ResumoController...');
+        
+        this.configurarEventos();
+        
+        console.log('✅ ResumoController inicializado');
+    }
+
+    configurarEventos() {
+        // Botão carregar resumo
+        const btnCarregar = document.getElementById('btnCarregarResumo');
+        if (btnCarregar) {
+            btnCarregar.addEventListener('click', () => this.carregarResumo());
+        }
+
+        // Botão calcular meses faltantes
+        const btnCalcularMeses = document.getElementById('btnCalcularMesesFaltantes');
+        if (btnCalcularMeses) {
+            btnCalcularMeses.addEventListener('click', () => this.calcularMesesFaltantes());
+        }
+
+        // Ao mudar empresa, limpar resumo
+        const selectEmpresa = document.getElementById('resumoEmpresa');
+        if (selectEmpresa) {
+            selectEmpresa.addEventListener('change', () => this.limparResumo());
+        }
+
+        // Ao mudar ano, limpar resumo
+        const selectAno = document.getElementById('resumoAno');
+        if (selectAno) {
+            selectAno.addEventListener('change', () => this.limparResumo());
+        }
+    }
+
+    limparResumo() {
+        // Limpar dados da empresa
+        ['resumoRazao', 'resumoCnpj', 'resumoIE', 'resumoCPF', 'resumoAbertura', 'resumoRegime']
+            .forEach(id => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = '';
+            });
+
+        // Limpar tabela de resumo
+        const thead = document.getElementById('resumoThead');
+        const tbody = document.getElementById('resumoTbody');
+        const tfoot = document.getElementById('resumoTfoot');
+        
+        if (thead) thead.innerHTML = '';
+        if (tbody) tbody.innerHTML = '';
+        if (tfoot) tfoot.innerHTML = '';
+    }
+
+    async carregarResumo() {
+        console.log('📊 Carregando resumo...');
+        
+        // Mostrar loader
+        UIUtils.mostrarLoader('resumoContainer', 'Carregando dados do resumo...');
+        
+        const empresaCnpj = document.getElementById('resumoEmpresa').value;
+        const ano = parseInt(document.getElementById('resumoAno').value);
+        
+        if (!empresaCnpj || !ano) {
+            UIUtils.mostrarToast('Selecione uma empresa e um ano', 'error');
+            UIUtils.esconderLoader('resumoContainer');
+            return;
+        }
+
+        this.empresaSelecionada = empresaCnpj;
+        this.anoSelecionado = ano;
+
+        try {
+            // 1. Buscar dados da empresa
+            this.dadosEmpresa = await this.buscarDadosEmpresa(empresaCnpj);
+            if (!this.dadosEmpresa) {
+                UIUtils.mostrarToast('Empresa não encontrada', 'error');
+                UIUtils.esconderLoader('resumoContainer');
+                return;
+            }
+
+            // 2. Preencher dados da empresa
+            this.preencherDadosEmpresa();
+
+            // 3. Buscar faturamentos do ano
+            this.faturamentosAno = await this.buscarFaturamentosAno(empresaCnpj, ano);
+
+            // 4. Buscar situações do ano
+            this.situacoesAno = await this.buscarSituacoesAno(empresaCnpj, ano);
+
+            // 5. Gerar resumo mensal
+            await this.gerarResumoMensal();
+
+            UIUtils.mostrarToast('✅ Resumo carregado com sucesso', 'success');
+
+        } catch (error) {
+            console.error('❌ Erro ao carregar resumo:', error);
+            UIUtils.mostrarToast(`❌ Erro ao carregar resumo: ${error.message}`, 'error');
+        } finally {
+            // Esconder loader independentemente do resultado
+            UIUtils.esconderLoader('resumoContainer');
+        }
+    }
+
+    async buscarDadosEmpresa(cnpj) {
+        const empresas = DataStore.obterTodos('empresas', []);
+        return empresas.find(e => e.cnpj === cnpj || e.id === cnpj);
+    }
+
+    preencherDadosEmpresa() {
+        if (!this.dadosEmpresa) return;
+
+        // Formatar CPF do primeiro sócio
+        let cpfFormatado = '';
+        if (this.dadosEmpresa.socios && this.dadosEmpresa.socios.length > 0) {
+            const primeiroSocio = this.dadosEmpresa.socios[0];
+            if (primeiroSocio.cpf) {
+                cpfFormatado = primeiroSocio.cpf;
+            }
+        }
+
+        // Preencher campos
+        document.getElementById('resumoRazao').textContent = this.dadosEmpresa.razaoSocial || '';
+        document.getElementById('resumoCnpj').textContent = this.dadosEmpresa.cnpj || '';
+        document.getElementById('resumoIE').textContent = this.dadosEmpresa.ie || '';
+        document.getElementById('resumoCPF').textContent = cpfFormatado;
+        
+        // Formatar data de abertura usando UIUtils.formatarDataParaExibicao
+        if (this.dadosEmpresa.dataAbertura) {
+            const dataFormatada = UIUtils.formatarDataParaExibicao(this.dadosEmpresa.dataAbertura);
+            document.getElementById('resumoAbertura').textContent = dataFormatada;
+        }
+
+        // Buscar regime atual (última situação)
+        const situacoes = DataStore.obterTodos('situacoes', [])
+            .filter(s => s.empresaCnpj === this.dadosEmpresa.cnpj || s.empresaId === this.dadosEmpresa.id)
+            .sort((a, b) => new Date(b.dataSituacao) - new Date(a.dataSituacao));
+
+        if (situacoes.length > 0) {
+            const situacao = situacoes[0];
+            const regime = situacao.regime;
+            const elementoRegime = document.getElementById('resumoRegime');
+        
+            if (elementoRegime) {
+                if (window.UIUtils && window.UIUtils.getNomeRegime) {
+                    // Usar UIUtils para nome do regime e criar badge
+                    const regimeNome = UIUtils.getNomeRegime(regime);
+                    
+                    // Criar badge estilizado usando UIUtils.criarBadge
+                    elementoRegime.innerHTML = '';
+                    const badge = UIUtils.criarBadge(regimeNome, this.obterTipoBadgeRegime(regime));
+                    badge.title = `Vigente desde: ${UIUtils.formatarDataParaExibicao(situacao.dataSituacao)}`;
+                    elementoRegime.appendChild(badge);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Mapeia regime tributário para tipo de badge
+     */
+    obterTipoBadgeRegime(regime) {
+        const mapeamento = {
+            'simples': 'info',
+            'presumido': 'warning',
+            'real': 'success',
+            'mei': 'success',
+            'imunes': 'gray'
+        };
+        return mapeamento[regime] || 'gray';
+    }
+
+    getNomeRegime(regime) {
+        const regimes = {
+            'simples': 'Simples Nacional',
+            'presumido': 'Lucro Presumido',
+            'real': 'Lucro Real'
+        };
+        return regimes[regime] || regime;
+    }
+
+    async buscarFaturamentosAno(empresaCnpj, ano) {
+        const faturamentos = DataStore.obterTodos('faturamentos', [])
+            .filter(f => {
+                const mesmoCnpj = f.empresaCnpj === empresaCnpj || f.empresaId === empresaCnpj;
+                return mesmoCnpj && f.ano === ano;
+            })
+            .sort((a, b) => a.mes - b.mes);
+
+        console.log(`📅 ${faturamentos.length} faturamentos encontrados para ${ano}`);
+        return faturamentos;
+    }
+
+    async buscarSituacoesAno(empresaCnpj, ano) {
+        const situacoes = DataStore.obterTodos('situacoes', [])
+            .filter(s => s.empresaCnpj === empresaCnpj || s.empresaId === empresaCnpj)
+            .sort((a, b) => new Date(a.dataSituacao) - new Date(b.dataSituacao));
+
+        return situacoes;
+    }
+
+    async gerarResumoMensal() {
+        console.log('📈 Gerando resumo mensal...');
+
+        // Mostrar loader na tabela
+        UIUtils.mostrarLoader('resumoTableContainer', 'Gerando resumo mensal...');
+
+        // Criar array com 12 meses
+        const mesesResumo = [];
+        for (let mes = 1; mes <= 12; mes++) {
+            mesesResumo.push(await this.criarResumoMes(mes));
+        }
+
+        // Gerar tabela
+        this.gerarTabelaResumo(mesesResumo);
+        
+        // Esconder loader
+        UIUtils.esconderLoader('resumoTableContainer');
+    }
+
+    async criarResumoMes(mes) {
+        const resumoMes = {
+            mes,
+            mesNome: this.getNomeMes(mes),
+            faturamento: null,
+            situacao: null,
+            rbt12: 0,
+            fatorR: null,
+            impostoCalculado: null,
+            calculos: {},
+            precisaCalcular: false
+        };
+
+        // 1. Buscar faturamento do mês
+        resumoMes.faturamento = this.faturamentosAno.find(f => f.mes === mes);
+
+        if (resumoMes.faturamento) {
+            // 2. Buscar situação vigente no mês
+            resumoMes.situacao = this.obterSituacaoVigente(mes);
+
+            // 3. Calcular RBT12 (Receita Bruta dos últimos 12 meses)
+            resumoMes.rbt12 = this.calcularRBT12(mes);
+
+            // 4. Calcular Fator R (se for Simples Nacional - Anexo V)
+            if (resumoMes.situacao?.regime === 'simples') {
+                resumoMes.fatorR = this.calcularFatorR(mes);
+            }
+
+            // 5. Verificar se já tem cálculo de imposto
+            if (resumoMes.faturamento.calculos?.valorImposto) {
+                resumoMes.impostoCalculado = resumoMes.faturamento.calculos.valorImposto;
+                resumoMes.calculos = resumoMes.faturamento.calculos;
+            } else {
+                resumoMes.precisaCalcular = true;
+            }
+
+            // 6. Verificar se cálculo está desatualizado
+            resumoMes.calculoDesatualizado = this.verificarCalculoDesatualizado(resumoMes);
+        }
+
+        return resumoMes;
+    }
+
+    getNomeMes(mes) {
+        const meses = [
+            'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+        ];
+        return meses[mes - 1] || `Mês ${mes}`;
+    }
+
+    obterSituacaoVigente(mes) {
+        if (!this.situacoesAno.length) return null;
+
+        const dataMes = new Date(this.anoSelecionado, mes - 1, 1); // Primeiro dia do mês
+        const dataFimMes = new Date(this.anoSelecionado, mes, 0); // Último dia do mês
+
+        // Ordenar situações por data (mais antiga primeiro)
+        const situacoesOrdenadas = [...this.situacoesAno].sort((a, b) => 
+            new Date(a.dataSituacao) - new Date(b.dataSituacao)
+        );
+
+        // Encontrar a situação vigente no mês
+        let situacaoVigente = null;
+        for (const situacao of situacoesOrdenadas) {
+            const dataSituacao = new Date(situacao.dataSituacao);
+            if (dataSituacao <= dataFimMes) {
+                situacaoVigente = { ...situacao }; // Criar cópia para não modificar o original
+            }
+        }
+        
+        // CARREGA PARÂMETROS SE NECESSÁRIO (MELHORADO)
+        if (situacaoVigente && situacaoVigente.regime === 'presumido') {
+            console.log('🔍 Verificando parâmetros para situação do Lucro Presumido...');
+            
+            // Se já tem parâmetros, não precisa carregar
+            if (situacaoVigente.parametros) {
+                console.log('✅ Situação já tem parâmetros:', situacaoVigente.parametros);
+                return situacaoVigente;
+            }
+            
+            // Buscar parâmetros nas situações anteriores
+            const todasSituacoes = DataStore.obterTodos('situacoes', []);
+            const situacoesComParametros = todasSituacoes
+                .filter(s => {
+                    const mesmoCnpj = s.empresaCnpj === this.empresaSelecionada || 
+                                   s.empresaId === this.empresaSelecionada;
+                    return mesmoCnpj && s.parametros && s.regime === 'presumido';
+                })
+                .sort((a, b) => new Date(b.dataSituacao) - new Date(a.dataSituacao));
+            
+            if (situacoesComParametros.length > 0) {
+                // Usar os parâmetros da situação mais recente com parâmetros
+                situacaoVigente.parametros = { ...situacoesComParametros[0].parametros };
+                console.log('✅ Parâmetros carregados de situação anterior:', situacaoVigente.parametros);
+            } else {
+                // Se não encontrou, buscar da parametrização
+                console.log('🔍 Buscando parâmetros padrão na parametrização...');
+                const configsPresumido = DataStore.obterTodos('configsPresumido', []);
+                if (configsPresumido.length > 0) {
+                    // Usar a configuração mais recente
+                    configsPresumido.sort((a, b) => new Date(b.vigencia) - new Date(a.vigencia));
+                    const configMaisRecente = configsPresumido[0];
+                    
+                    // Converter configuração para parâmetros
+                    situacaoVigente.parametros = {
+                        aliquotaIRPJ: configMaisRecente.aliquotaIRPJ || 15,
+                        aliquotaCSLL: configMaisRecente.aliquotaCSLL || 9,
+                        pisCofins: configMaisRecente.pisCofins || 3.65,
+                        icms: configMaisRecente.icms || 18,
+                        iss: configMaisRecente.iss || 5,
+                        presuncaoIRPJ: configMaisRecente.presuncaoIRPJ || 8,
+                        presuncaoCSLL: configMaisRecente.presuncaoCSLL || 12
+                    };
+                    console.log('✅ Parâmetros carregados da parametrização:', situacaoVigente.parametros);
+                }
+            }
+        }
+
+        return situacaoVigente;
+    }
+    
+    debugSituacaoMes(mes) {
+        console.log('🔍 DEBUG: Situação para o mês', mes);
+        
+        const resumoMes = this.criarResumoMes(mes);
+        console.log('Resumo do mês:', resumoMes);
+        
+        if (resumoMes.situacao) {
+            console.log('Situação encontrada:', {
+                id: resumoMes.situacao.id,
+                regime: resumoMes.situacao.regime,
+                dataSituacao: resumoMes.situacao.dataSituacao,
+                parametros: resumoMes.situacao.parametros,
+                gruposPresumido: resumoMes.situacao.gruposPresumido
+            });
+        } else {
+            console.log('⚠️ Nenhuma situação encontrada para este mês');
+        }
+    }
+
+    calcularRBT12(mes) {
+        let total = 0;
+        const mesesParaSomar = 12;
+        
+        console.log(`🔍 Calculando RBT12 para mês ${mes}/${this.anoSelecionado}`);
+        
+        // Calcular dos 12 meses ANTERIORES (não incluindo o mês atual se for para Simples)
+        // Para Simples Nacional: RBT12 são os 12 meses IMEDIATAMENTE ANTERIORES
+        for (let i = 1; i <= mesesParaSomar; i++) {
+            let mesCalculo = mes - i;
+            let anoCalculo = this.anoSelecionado;
+            
+            // Ajustar para meses/anos anteriores
+            while (mesCalculo < 1) {
+                mesCalculo += 12;
+                anoCalculo -= 1;
+            }
+            
+            console.log(`  📅 Buscando mês ${mesCalculo}/${anoCalculo} (mês ${i} anterior)`);
+            
+            // Buscar faturamento do mês específico
+            let faturamento = null;
+            
+            // Primeiro busca no array de faturamentos do ano atual
+            if (anoCalculo === this.anoSelecionado) {
+                faturamento = this.faturamentosAno.find(f => f.mes === mesCalculo);
+            }
+            
+            // Se não encontrou, busca em todos os faturamentos
+            if (!faturamento) {
+                faturamento = DataStore.obterTodos('faturamentos', []).find(f => {
+                    const mesmoCnpj = f.empresaCnpj === this.empresaSelecionada || f.empresaId === this.empresaSelecionada;
+                    return mesmoCnpj && f.mes === mesCalculo && f.ano === anoCalculo;
+                });
+            }
+            
+            if (faturamento) {
+                const valor = this.calcularFaturamentoTotal(faturamento);
+                console.log(`    ✅ Encontrado: ${UIUtils.formatarMoeda(valor)}`);
+                total += valor;
+            } else {
+                console.log(`    ❌ Não encontrado`);
+            }
+        }
+        
+        console.log(`📊 RBT12 total para mês ${mes}: ${UIUtils.formatarMoeda(total)}`);
+        return total;
+    }
+
+    calcularFatorR(mes) {
+        console.log(`🔍 Calculando Fator R para mês ${mes}`);
+        
+        const faturamentoAtual = this.faturamentosAno.find(f => f.mes === mes);
+        if (!faturamentoAtual) return null;
+        
+        // Verificar se é Simples Nacional
+        const situacaoMes = this.obterSituacaoVigente(mes);
+        if (!situacaoMes || situacaoMes.regime !== 'simples') return null;
+        
+        // 1. SOMAR MASSA SALARIAL DOS ÚLTIMOS 12 MESES
+        let massaSalarialTotal12 = 0;
+        let receitaBrutaTotal12 = 0;
+        
+        for (let i = 1; i <= 12; i++) {
+            let mesCalculo = mes - i;
+            let anoCalculo = this.anoSelecionado;
+            
+            // Ajustar para meses/anos anteriores
+            while (mesCalculo < 1) {
+                mesCalculo += 12;
+                anoCalculo -= 1;
+            }
+            
+            console.log(`  📅 Mês ${i} anterior: ${mesCalculo}/${anoCalculo}`);
+            
+            // Buscar faturamento do mês
+            let faturamento12 = null;
+            
+            // Primeiro busca no array de faturamentos do ano atual
+            if (anoCalculo === this.anoSelecionado) {
+                faturamento12 = this.faturamentosAno.find(f => f.mes === mesCalculo);
+            }
+            
+            // Se não encontrou, busca em todos os faturamentos
+            if (!faturamento12) {
+                faturamento12 = DataStore.obterTodos('faturamentos', []).find(f => {
+                    const mesmoCnpj = f.empresaCnpj === this.empresaSelecionada || f.empresaId === this.empresaSelecionada;
+                    return mesmoCnpj && f.mes === mesCalculo && f.ano === anoCalculo;
+                });
+            }
+            
+            if (faturamento12) {
+                // Somar receita bruta (para RBT12)
+                const receitaBruta = this.calcularFaturamentoTotal(faturamento12);
+                receitaBrutaTotal12 += receitaBruta;
+                
+                // Somar massa salarial (para Fator R)
+                if (faturamento12.valores?.anexos) {
+                    const anexoV = faturamento12.valores.anexos.find(a => a.codigoAnexo === 'V');
+                    if (anexoV?.massaSalarial) {
+                        massaSalarialTotal12 += anexoV.massaSalarial;
+                        console.log(`    💰 Massa salarial: ${UIUtils.formatarMoeda(anexoV.massaSalarial)}`);
+                    }
+                }
+                console.log(`    📊 Receita bruta: ${UIUtils.formatarMoeda(receitaBruta)}`);
+            }
+        }
+        
+        // Calcular Fator R
+        let fatorR = 0;
+        if (receitaBrutaTotal12 > 0) {
+            fatorR = (massaSalarialTotal12 / receitaBrutaTotal12) * 100;
+        }
+        
+        console.log(`📊 Fator R cálculo:`);
+        console.log(`   - Massa salarial 12m: ${UIUtils.formatarMoeda(massaSalarialTotal12)}`);
+        console.log(`   - Receita bruta 12m: ${UIUtils.formatarMoeda(receitaBrutaTotal12)}`);
+        console.log(`   - Fator R: ${fatorR.toFixed(2)}%`);
+        
+        return fatorR;
+    }
+
+    calcularFaturamentoTotal(faturamento) {
+        if (!faturamento || !faturamento.valores) return 0;
+
+        switch (faturamento.regime) {
+            case 'simples':
+                // Somar todos os anexos
+                if (faturamento.valores.anexos) {
+                    return faturamento.valores.anexos.reduce((total, anexo) => {
+                        return total + (anexo.faturamentoTotal || 0);
+                    }, 0);
+                }
+                return faturamento.valores.faturamentoTotal || 0;
+
+            case 'presumido':
+                // Somar comércio + serviços, se existirem
+                if (faturamento.valores.comercio !== undefined && faturamento.valores.servicos !== undefined) {
+                    return (faturamento.valores.comercio || 0) + (faturamento.valores.servicos || 0);
+                }                
+                
+            case 'real':
+                return faturamento.valores.faturamentoTotal || 0;
+
+            default:
+                return 0;
+        }
+    }
+
+    verificarCalculoDesatualizado(resumoMes) {
+        if (!resumoMes.faturamento?.calculos) return true;
+
+        const calculo = resumoMes.faturamento.calculos;
+        const ultimaAtualizacao = new Date(calculo.dataCalculo || resumoMes.faturamento.dataAtualizacao);
+        const agora = new Date();
+
+        // Considerar desatualizado se foi calculado há mais de 1 hora ou se dados mudaram
+        const horasDesdeCalculo = (agora - ultimaAtualizacao) / (1000 * 60 * 60);
+        
+        return horasDesdeCalculo > 1 || calculo.hash !== this.calcularHashFaturamento(resumoMes.faturamento);
+    }
+
+    calcularHashFaturamento(faturamento) {
+        // Criar um hash simples para verificar se os dados mudaram
+        const dadosParaHash = {
+            valores: faturamento.valores,
+            regime: faturamento.regime,
+            mes: faturamento.mes,
+            ano: faturamento.ano
+        };
+        
+        return JSON.stringify(dadosParaHash).split('').reduce((a, b) => {
+            a = ((a << 5) - a) + b.charCodeAt(0);
+            return a & a;
+        }, 0);
+    }
+
+    gerarTabelaResumo(mesesResumo) {
+        console.log('📋 Gerando tabela de resumo...');
+
+        const thead = document.getElementById('resumoThead');
+        const tbody = document.getElementById('resumoTbody');
+        const tfoot = document.getElementById('resumoTfoot');
+
+        // Limpar tabela
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+        tfoot.innerHTML = '';
+
+        // Determinar colunas baseadas no regime predominante
+        const regimePredominante = this.determinarRegimePredominante(mesesResumo);
+        const colunas = this.gerarColunasTabela(regimePredominante);
+
+        // Criar cabeçalho
+        const headerRow = document.createElement('tr');
+        colunas.forEach(col => {
+            const th = document.createElement('th');
+            th.className = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+            th.textContent = col.titulo;
+            th.setAttribute('data-campo', col.campo);
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // Criar linhas dos meses
+        let totalGeralFaturamento = 0;
+        let totalGeralImposto = 0;
+        let mesesComCalculo = 0;
+        let mesesSemFaturamento = 0;
+
+        mesesResumo.forEach(resumoMes => {
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-gray-50 transition-colors';
+            row.setAttribute('data-mes', resumoMes.mes);
+
+            colunas.forEach(col => {
+                const td = document.createElement('td');
+                td.className = 'px-4 py-3 border-b border-gray-200 text-sm';
+                
+                const valor = this.formatarValorCelula(resumoMes, col.campo);
+                td.innerHTML = valor;
+                
+                // Adicionar classes específicas
+                if (col.campo === 'imposto') {
+                    td.className += ' font-medium';
+                    if (resumoMes.impostoCalculado > 0) {
+                        td.classList.add('text-green-700');
+                    }
+                }
+                
+                if (col.campo === 'status') {
+                    if (resumoMes.precisaCalcular) {
+                        td.classList.add('text-yellow-600', 'font-medium');
+                    } else if (resumoMes.calculoDesatualizado) {
+                        td.classList.add('text-orange-600', 'font-medium');
+                    } else {
+                        td.classList.add('text-green-600');
+                    }
+                }
+
+                row.appendChild(td);
+            });
+
+            tbody.appendChild(row);
+
+            // Acumular totais
+            if (resumoMes.faturamento) {
+                totalGeralFaturamento += this.calcularFaturamentoTotal(resumoMes.faturamento);
+                totalGeralImposto += (resumoMes.impostoCalculado || 0);
+                if (resumoMes.impostoCalculado) mesesComCalculo++;
+            } else {
+                mesesSemFaturamento++;
+            }
+        });
+
+        // Criar rodapé com totais
+        const footerRow = document.createElement('tr');
+        footerRow.className = 'bg-gray-50 font-semibold';
+        
+        colunas.forEach((col, index) => {
+            const td = document.createElement('td');
+            td.className = 'px-4 py-3 text-sm';
+            
+            if (index === 0) {
+                td.textContent = 'TOTAL GERAL';
+                td.className += ' font-bold';
+            } else if (col.campo === 'faturamentoTotal') {
+                td.textContent = UIUtils.formatarMoeda(totalGeralFaturamento);
+                td.className += ' text-right text-blue-700';
+            } else if (col.campo === 'imposto') {
+                td.textContent = UIUtils.formatarMoeda(totalGeralImposto);
+                td.className += ' text-right text-green-700';
+            } else if (col.campo === 'rbt12') {
+                td.textContent = '-';
+            } else if (col.campo === 'fatorR') {
+                td.textContent = '-';
+            } else if (col.campo === 'status') {
+                const badge = UIUtils.criarBadge(`${12 - mesesSemFaturamento}/12 meses`, 
+                    mesesSemFaturamento > 0 ? 'warning' : 'success');
+                td.innerHTML = '';
+                td.appendChild(badge);
+            } else {
+                td.textContent = '-';
+            }
+            
+            footerRow.appendChild(td);
+        });
+
+        tfoot.appendChild(footerRow);
+
+        // Adicionar botões de ação às células de ação
+        this.adicionarBotoesAcao();
+    }
+
+    determinarRegimePredominante(mesesResumo) {
+        const contagemRegimes = {};
+        
+        mesesResumo.forEach(mes => {
+            if (mes.situacao?.regime) {
+                contagemRegimes[mes.situacao.regime] = (contagemRegimes[mes.situacao.regime] || 0) + 1;
+            }
+        });
+
+        // Retornar o regime mais frequente
+        let regimePredominante = 'simples';
+        let maxContagem = 0;
+        
+        Object.entries(contagemRegimes).forEach(([regime, contagem]) => {
+            if (contagem > maxContagem) {
+                maxContagem = contagem;
+                regimePredominante = regime;
+            }
+        });
+
+        return regimePredominante;
+    }
+
+    gerarColunasTabela(regime) {
+        // Colunas base para todos os regimes
+        const colunasBase = [
+            { campo: 'mes', titulo: 'Mês' },
+            { campo: 'regime', titulo: 'Regime' },
+            { campo: 'faturamentoTotal', titulo: 'Faturamento Total' },
+            { campo: 'rbt12', titulo: 'RBT12' },
+            { campo: 'imposto', titulo: 'Imposto' },
+            { campo: 'status', titulo: 'Status' },
+            { campo: 'acao', titulo: 'Ação' }
+        ];
+
+        // Adicionar colunas específicas por regime
+        if (regime === 'simples') {
+            // Inserir após faturamentoTotal
+            const colunasSimples = [
+                { campo: 'fatorR', titulo: 'Fator R %' }
+            ];
+            
+            // Encontrar índice de faturamentoTotal
+            const indexFaturamento = colunasBase.findIndex(c => c.campo === 'faturamentoTotal');
+            colunasBase.splice(indexFaturamento + 1, 0, ...colunasSimples);
+        }
+
+        return colunasBase;
+    }
+
+    formatarValorCelula(resumoMes, campo) {
+        // Assumindo que UIUtils está sempre disponível
+        const UI = window.UIUtils || {
+            formatarMoeda: (valor) => `R$ ${Number(valor).toFixed(2).replace('.', ',')}`,
+            getNomeRegime: (regime) => regime,
+            criarBadge: (texto, tipo) => {
+                const span = document.createElement('span');
+                span.className = `px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800`;
+                span.textContent = texto;
+                return span;
+            }
+        };
+
+        switch (campo) {
+            case 'mes':
+                return `<span class="font-medium">${resumoMes.mesNome}</span>`;
+            
+            case 'regime':
+                if (resumoMes.situacao && resumoMes.situacao.regime) {
+                    const regimeNome = UI.getNomeRegime(resumoMes.situacao.regime);
+                    const badge = UI.criarBadge(regimeNome, this.obterTipoBadgeRegime(resumoMes.situacao.regime));
+                    return badge.outerHTML;
+                }
+                return '<span class="text-gray-400">-</span>';
+            
+            case 'faturamentoTotal':
+                if (resumoMes.faturamento) {
+                    const total = this.calcularFaturamentoTotal(resumoMes.faturamento);
+                    return `<span class="font-medium">${UI.formatarMoeda(total)}</span>`;
+                }
+                return '<span class="text-gray-400">-</span>';
+            
+            case 'rbt12':
+                if (resumoMes.rbt12 > 0) {
+                    return UI.formatarMoeda(resumoMes.rbt12);
+                }
+                return '<span class="text-gray-400">-</span>';
+            
+            case 'fatorR':
+                if (resumoMes.fatorR !== null) {
+                    return `${resumoMes.fatorR.toFixed(2)}%`;
+                }
+                return '<span class="text-gray-400">-</span>';
+            
+            case 'imposto':
+                if (resumoMes.impostoCalculado) {
+                    return `<span class="font-medium">${UI.formatarMoeda(resumoMes.impostoCalculado)}</span>`;
+                }
+                return '<span class="text-gray-400">-</span>';
+            
+            case 'status':
+                if (!resumoMes.faturamento) {
+                    const badge = UI.criarBadge('Sem faturamento', 'gray');
+                    return badge.outerHTML;
+                } else if (resumoMes.precisaCalcular) {
+                    const badge = UI.criarBadge('Pendente', 'warning');
+                    return badge.outerHTML;
+                } else if (resumoMes.calculoDesatualizado) {
+                    const badge = UI.criarBadge('Atualizar', 'warning');
+                    return badge.outerHTML;
+                } else {
+                    const badge = UI.criarBadge('OK', 'success');
+                    return badge.outerHTML;
+                }
+            
+            case 'acao':
+                if (!resumoMes.faturamento) {
+                    return `<button class="btn-registrar-faturamento px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200" data-mes="${resumoMes.mes}">
+                        Registrar
+                    </button>`;
+                } else if (resumoMes.precisaCalcular || resumoMes.calculoDesatualizado) {
+                    return `<button class="btn-calcular-imposto px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700" data-mes="${resumoMes.mes}">
+                        Calcular
+                    </button>`;
+                } else {
+                    return `<button class="btn-recalcular-imposto px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300" data-mes="${resumoMes.mes}">
+                        Recalcular
+                    </button>`;
+                }
+            
+            default:
+                return '-';
+        }
+    }    
+
+    adicionarBotoesAcao() {
+        // Botões calcular imposto
+        document.querySelectorAll('.btn-calcular-imposto').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mes = parseInt(e.target.getAttribute('data-mes'));
+                this.calcularImpostoMes(mes);
+            });
+        });
+
+        // Botões recalcular imposto
+        document.querySelectorAll('.btn-recalcular-imposto').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mes = parseInt(e.target.getAttribute('data-mes'));
+                this.calcularImpostoMes(mes, true);
+            });
+        });
+
+        // Botões registrar faturamento
+        document.querySelectorAll('.btn-registrar-faturamento').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mes = parseInt(e.target.getAttribute('data-mes'));
+                this.irParaRegistroFaturamento(mes);
+            });
+        });
+    }
+
+    async calcularImpostoMes(mes, forcarRecalculo = false) {
+        console.log(`🧮 Calculando imposto para mês ${mes}...`);
+        
+        const resumoMes = await this.criarResumoMes(mes);
+        
+        if (!resumoMes.faturamento) {
+            UIUtils.mostrarToast(`Não há faturamento registrado para ${resumoMes.mesNome}`, 'warning');
+            return;
+        }
+
+        // Verificar se já existe cálculo atualizado
+        if (!forcarRecalculo && resumoMes.impostoCalculado && !resumoMes.calculoDesatualizado) {
+            const confirmar = confirm(`Imposto já calculado para ${resumoMes.mesNome}. Deseja recalcular?`);
+            if (!confirmar) return;
+        }
+        
+        // VERIFICAÇÃO ESPECÍFICA PARA LUCRO PRESUMIDO (ADICIONAR)
+        if (resumoMes.situacao?.regime === 'presumido') {
+            if (!resumoMes.situacao.parametros) {
+                const usarPadrao = confirm(`⚠️ Situação do Lucro Presumido sem parâmetros de alíquotas.\n\nDeseja usar alíquotas padrão? (Caso contrário, será necessário editar a situação tributária)`);
+                
+                if (!usarPadrao) {
+                    UIUtils.mostrarToast('Edite a situação tributária para definir as alíquotas', 'warning');
+                    return;
+                }
+                
+                // Carregar alíquotas padrão
+                resumoMes.situacao.parametros = {
+                    aliquotaIRPJ: 15,
+                    aliquotaCSLL: 9,
+                    aliquotaPIS: 0.65,
+                    aliquotaCOFINS: 3,
+                    aliquotaISS: 5
+                };
+                console.log('✅ Usando alíquotas padrão para Lucro Presumido');
+            }
+        }
+
+        try {
+            UIUtils.mostrarToast(`Calculando imposto para ${resumoMes.mesNome}...`, 'info');
+
+            let resultadoCalculo;
+            const regime = resumoMes.situacao?.regime || resumoMes.faturamento.regime;
+
+            switch (regime) {
+                case 'simples':
+                    resultadoCalculo = await this.calcularImpostoSimples(resumoMes);
+                    break;
+                case 'presumido':
+                    resultadoCalculo = await this.calcularImpostoPresumido(resumoMes);
+                    break;
+                case 'real':
+                    resultadoCalculo = await this.calcularImpostoReal(resumoMes);
+                    break;
+                default:
+                    throw new Error(`Regime tributário não suportado: ${regime}`);
+            }
+
+            // Salvar cálculo no faturamento
+            await this.salvarCalculoFaturamento(resumoMes.faturamento.id, resultadoCalculo);
+
+            // ATUALIZAR O FATURAMENTO NA MEMÓRIA LOCAL também
+            const index = this.faturamentosAno.findIndex(f => f.id === resumoMes.faturamento.id);
+            if (index !== -1) {
+                this.faturamentosAno[index].calculos = resultadoCalculo;
+                this.faturamentosAno[index].dataAtualizacao = new Date().toISOString();
+            }
+
+            UIUtils.mostrarToast(`✅ Imposto calculado para ${resumoMes.mesNome}: ${UIUtils.formatarMoeda(resultadoCalculo.valorImposto)}`, 'success');
+
+            // Atualizar a linha na tabela IMEDIATAMENTE
+            this.atualizarLinhaMes(mes, resultadoCalculo);
+
+        } catch (error) {
+            console.error(`❌ Erro ao calcular imposto para mês ${mes}:`, error);
+            UIUtils.mostrarToast(`❌ Erro no cálculo: ${error.message}`, 'error');
+        }
+    }
+
+    async calcularImpostoSimples(resumoMes) {
+        console.log('🧮 Calculando Simples Nacional...');
+        
+        const { faturamento, rbt12, situacao } = resumoMes;
+        
+        // Usar o módulo compartilhado
+        return CalculoCompartilhado.calcularImpostoSimples(faturamento, rbt12, situacao, this.empresaSelecionada);
+    }
+
+    async calcularImpostoPresumido(resumoMes) {
+        console.log('🧮 Calculando Lucro Presumido com grupos...');
+        
+        const { faturamento, situacao } = resumoMes;
+        
+        // 1. VERIFICAR GRUPOS DA SITUAÇÃO
+        const grupos = situacao?.gruposPresumido || [];
+        
+        if (grupos.length === 0) {
+            console.warn('⚠️ Empresa sem grupos de presunção definidos');
+            // Usar configuração padrão se não houver grupos
+            return CalculoCompartilhado.calcularImpostoPresumido(faturamento);
+        }
+        
+        // 2. BUSCAR CONFIGURAÇÕES VIGENTES PARA CADA GRUPO
+        const configsPorGrupo = {};
+        const dataSituacao = new Date(situacao.dataSituacao);
+        
+        for (const grupo of grupos) {
+            const config = await this.buscarConfigPresumidoPorGrupo(grupo, dataSituacao);
+            if (config) {
+                configsPorGrupo[grupo] = config;
+                console.log(`✅ Config encontrada para ${grupo}: ${config.nome}`);
+            } else {
+                console.warn(`⚠️ Config não encontrada para grupo ${grupo}`);
+            }
+        }
+        
+        // 3. SEPARAR FATURAMENTO POR ATIVIDADE
+        let faturamentoComercio = 0;
+        let faturamentoServico = 0;
+        
+        // Verificar se há valores específicos para comércio e serviços
+        if (faturamento.valores && faturamento.valores.comercio !== undefined) {
+            faturamentoComercio = faturamento.valores.comercio || 0;
+        }
+        
+        if (faturamento.valores && faturamento.valores.servicos !== undefined) {
+            faturamentoServico = faturamento.valores.servicos || 0;
+        }
+        
+        console.log(`📊 Faturamento separado: Comércio=${UIUtils.formatarMoeda(faturamentoComercio)}, Serviço=${UIUtils.formatarMoeda(faturamentoServico)}`);
+        
+        // 4. CALCULAR IMPOSTOS POR GRUPO
+        let calculosPorGrupo = {};
+        let impostoTotal = 0;
+        let reparticaoTotal = {};
+        
+        // GRUPO 1 (Comércio)
+        if (grupos.includes('grupo1') && faturamentoComercio > 0) {
+            const configGrupo1 = configsPorGrupo['grupo1'];
+            if (configGrupo1) {
+                const calculoGrupo1 = this.calcularImpostoPresumidoPorGrupo(
+                    faturamentoComercio, 
+                    configGrupo1,
+                    'grupo1'
+                );
+                calculosPorGrupo.grupo1 = calculoGrupo1;
+                impostoTotal += calculoGrupo1.valorImposto;
+                
+                // Somar repartição
+                Object.entries(calculoGrupo1.reparticao || {}).forEach(([tributo, valor]) => {
+                    reparticaoTotal[tributo] = (reparticaoTotal[tributo] || 0) + valor;
+                });
+            }
+        }
+        
+        // GRUPO 2 ou 3 (Serviços)
+        const gruposServico = grupos.filter(g => g === 'grupo2' || g === 'grupo3');
+        if (gruposServico.length > 0 && faturamentoServico > 0) {
+            // Usar o primeiro grupo de serviço encontrado
+            const grupoServico = gruposServico[0]; // Pode ser grupo2 ou grupo3
+            const configServico = configsPorGrupo[grupoServico];
+            
+            if (configServico) {
+                const calculoServico = this.calcularImpostoPresumidoPorGrupo(
+                    faturamentoServico,
+                    configServico,
+                    grupoServico
+                );
+                calculosPorGrupo[grupoServico] = calculoServico;
+                impostoTotal += calculoServico.valorImposto;
+                
+                // Somar repartição
+                Object.entries(calculoServico.reparticao || {}).forEach(([tributo, valor]) => {
+                    reparticaoTotal[tributo] = (reparticaoTotal[tributo] || 0) + valor;
+                });
+            }
+        }
+        
+        // 5. SE NÃO TEVE SEPARAÇÃO E SÓ TEM 1 GRUPO, CALCULAR TUDO COM ESSE GRUPO
+        if (impostoTotal === 0 && grupos.length === 1 && faturamento.valores?.faturamentoTotal) {
+            const grupoUnico = grupos[0];
+            const configUnica = configsPorGrupo[grupoUnico];
+            
+            // Usar o total do faturamento
+            const faturamentoTotal = this.calcularFaturamentoTotal(faturamento);
+        
+            if (configUnica) {
+                const calculoUnico = this.calcularImpostoPresumidoPorGrupo(
+                    faturamento.valores.faturamentoTotal,
+                    configUnica,
+                    grupoUnico
+                );
+                calculosPorGrupo[grupoUnico] = calculoUnico;
+                impostoTotal = calculoUnico.valorImposto;
+                reparticaoTotal = calculoUnico.reparticao || {};
+            }
+        }
+        
+        // 6. RETORNAR RESULTADO
+        const resultado = {
+            valorImposto: impostoTotal,
+            reparticao: reparticaoTotal,
+            calculosPorGrupo: calculosPorGrupo,
+            regime: 'presumido',
+            dataCalculo: new Date().toISOString(),
+            gruposAplicados: grupos,
+            faturamentoComercio: faturamentoComercio,
+            faturamentoServico: faturamentoServico,
+            hash: this.calcularHashFaturamento(faturamento)
+        };
+        
+        console.log('✅ Cálculo Lucro Presumido finalizado:', resultado);
+        return resultado;
+    }
+    
+    async buscarConfigPresumidoPorGrupo(grupo, dataSituacao) {
+        const configs = DataStore.obterTodos('configsPresumido', []);
+        
+        // Filtrar por grupo
+        const configsGrupo = configs.filter(c => c.tipoPresuncao === grupo);
+        
+        if (configsGrupo.length === 0) {
+            console.warn(`❌ Nenhuma configuração encontrada para o grupo ${grupo}`);
+            return null;
+        }
+        
+        // Encontrar a configuração vigente na data da situação
+        // Ordenar por vigência (mais recente primeiro)
+        configsGrupo.sort((a, b) => {
+            const dataA = new Date(a.vigencia + '-01');
+            const dataB = new Date(b.vigencia + '-01');
+            return dataB - dataA;
+        });
+        
+        // Encontrar a última configuração VIGENTE até a data da situação
+        for (const config of configsGrupo) {
+            const vigenciaConfig = new Date(config.vigencia + '-01');
+            if (vigenciaConfig <= dataSituacao) {
+                return config;
+            }
+        }
+        
+        // Se não encontrou, usar a mais recente
+        return configsGrupo[0];
+    }
+
+    calcularImpostoPresumidoPorGrupo(faturamento, config, grupo) {
+        console.log(`📊 Calculando grupo ${grupo} com faturamento: ${UIUtils.formatarMoeda(faturamento)}`);
+        
+        // CÁLCULO DO IRPJ
+        // Presunção: grupo1=8%, grupo2=16%, grupo3=32%
+        const presuncaoIRPJ = config.presuncaoIRPJ || 0;
+        const aliquotaIRPJ = config.aliquotaIRPJ || 15; // 15% normal
+        const adicionalIRPJ = config.adicionalIRPJ || 10; // 10% adicional
+        
+        const basePresumidaIRPJ = faturamento * (presuncaoIRPJ / 100);
+        console.log(`   Base IRPJ (${presuncaoIRPJ}%): ${UIUtils.formatarMoeda(basePresumidaIRPJ)}`);
+        
+        // Calcular IRPJ normal (15%)
+        let irpj = basePresumidaIRPJ * (aliquotaIRPJ / 100);
+        
+        // Calcular adicional (10%) se base > R$ 20.000/mês
+        const limiteAdicional = 20000;
+        if (basePresumidaIRPJ > limiteAdicional) {
+            const excedente = basePresumidaIRPJ - limiteAdicional;
+            const adicional = excedente * (adicionalIRPJ / 100);
+            irpj += adicional;
+            console.log(`   Adicional IRPJ (${adicionalIRPJ}% sobre excedente): ${UIUtils.formatarMoeda(adicional)}`);
+        }
+        
+        // CÁLCULO DO CSLL
+        // Presunção: grupo1=12%, grupo2=12%, grupo3=32%
+        const presuncaoCSLL = config.presuncaoCSLL || 0;
+        const aliquotaCSLL = config.aliquotaCSLL || 9; // 9% normal
+        
+        const basePresumidaCSLL = faturamento * (presuncaoCSLL / 100);
+        const csll = basePresumidaCSLL * (aliquotaCSLL / 100);
+        console.log(`   Base CSLL (${presuncaoCSLL}%): ${UIUtils.formatarMoeda(basePresumidaCSLL)}`);
+        
+        // CÁLCULO PIS/COFINS
+        const pisCofins = config.pisCofins || 3.65; // 3.65% (PIS 0.65% + COFINS 3%)
+        const valorPisCofins = faturamento * (pisCofins / 100);
+        
+        // CÁLCULO ICMS (para comércio - grupo1)
+        let icms = 0;
+        let valorICMS = 0;
+        if (grupo === 'grupo1') {
+            icms = config.icms || 0; // Varia por estado
+            valorICMS = faturamento * (icms / 100);
+        }
+        
+        // CÁLCULO ISS (para serviços - grupo2/grupo3)
+        let iss = 0;
+        let valorISS = 0;
+        if (grupo === 'grupo2' || grupo === 'grupo3') {
+            iss = config.iss || 0; // Varia por município
+            valorISS = faturamento * (iss / 100);
+        }
+        
+        const impostoTotal = irpj + csll + valorPisCofins + valorICMS + valorISS;
+        
+        // REPARTIÇÃO DOS TRIBUTOS
+        const reparticao = {
+            IRPJ: {
+                valor: irpj,
+                percentual: irpj / impostoTotal * 100,
+                baseCalculo: basePresumidaIRPJ,
+                aliquota: aliquotaIRPJ,
+                presuncao: presuncaoIRPJ
+            },
+            CSLL: {
+                valor: csll,
+                percentual: csll / impostoTotal * 100,
+                baseCalculo: basePresumidaCSLL,
+                aliquota: aliquotaCSLL,
+                presuncao: presuncaoCSLL
+            },
+            PIS_COFINS: {
+                valor: valorPisCofins,
+                percentual: valorPisCofins / impostoTotal * 100,
+                aliquota: pisCofins
+            }
+        };
+        
+        if (grupo === 'grupo1') {
+            reparticao.ICMS = {
+                valor: valorICMS,
+                percentual: valorICMS / impostoTotal * 100,
+                aliquota: icms
+            };
+        } else {
+            reparticao.ISS = {
+                valor: valorISS,
+                percentual: valorISS / impostoTotal * 100,
+                aliquota: iss
+            };
+        }
+        
+        return {
+            valorImposto: impostoTotal,
+            reparticao: reparticao,
+            grupo: grupo,
+            configNome: config.nome,
+            basesCalculo: {
+                faturamento: faturamento,
+                baseIRPJ: basePresumidaIRPJ,
+                baseCSLL: basePresumidaCSLL
+            }
+        };
+    }
+
+    async calcularImpostoReal(resumoMes) {
+        const { faturamento } = resumoMes;
+        
+        // Usar o módulo compartilhado
+        return CalculoCompartilhado.calcularImpostoReal(faturamento);
+    }
+
+    calcularFaturamentoTotal(faturamento) {
+        // Usar o módulo compartilhado
+        return CalculoCompartilhado.calcularFaturamentoTotal(faturamento);
+    }
+
+    calcularRBT12(mes) {
+        // Usar o módulo compartilhado
+        return CalculoCompartilhado.calcularRBT12(this.empresaSelecionada, mes, this.anoSelecionado);
+    }
+    async salvarCalculoFaturamento(faturamentoId, resultadoCalculo) {
+        const faturamentos = DataStore.obterTodos('faturamentos', []);
+        const faturamentoIndex = faturamentos.findIndex(f => f.id === faturamentoId);
+        
+        if (faturamentoIndex === -1) {
+            throw new Error('Faturamento não encontrado');
+        }
+
+        // Atualizar faturamento com cálculos
+        faturamentos[faturamentoIndex].calculos = resultadoCalculo;
+        faturamentos[faturamentoIndex].dataAtualizacao = new Date().toISOString();
+
+        // Salvar no localStorage
+        localStorage.setItem('faturamentos', JSON.stringify(faturamentos));
+
+        console.log(`✅ Cálculo salvo para faturamento ${faturamentoId}`);
+    }
+    
+    /**
+     * Mostra detalhes do cálculo em um modal
+     */
+    mostrarDetalhesCalculo(mes, resultadoCalculo) {
+        const mesNome = this.getNomeMes(mes);
+        
+        let detalhesHTML = `
+            <div class="space-y-4">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <h4 class="font-bold text-blue-800 mb-2">Resumo do Cálculo</h4>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div class="text-gray-600">Mês:</div>
+                        <div class="font-medium">${mesNome}</div>
+                        <div class="text-gray-600">RBT12:</div>
+                        <div class="font-medium">${UIUtils.formatarMoeda(resultadoCalculo.rbt12)}</div>
+                        <div class="text-gray-600">Faixa:</div>
+                        <div class="font-medium">${resultadoCalculo.faixaUtilizada}</div>
+                        <div class="text-gray-600">Alíquota Nominal:</div>
+                        <div class="font-medium">${resultadoCalculo.aliquotaNominal}%</div>
+                        <div class="text-gray-600">Alíquota Efetiva:</div>
+                        <div class="font-medium">${resultadoCalculo.aliquotaEfetiva?.toFixed(2) || '0'}%</div>
+                        <div class="text-gray-600">Dedução:</div>
+                        <div class="font-medium">${UIUtils.formatarMoeda(resultadoCalculo.deducaoAplicada)}</div>
+                    </div>
+                </div>
+        `;
+        
+        if (resultadoCalculo.reparticao && Object.keys(resultadoCalculo.reparticao).length > 0) {
+            detalhesHTML += `
+                <div class="bg-purple-50 p-4 rounded-lg">
+                    <h4 class="font-bold text-purple-800 mb-2">Repartição dos Tributos</h4>
+                    <div class="space-y-2">
+            `;
+            
+            Object.entries(resultadoCalculo.reparticao).forEach(([tributo, dados]) => {
+                detalhesHTML += `
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-700">${tributo}</span>
+                        <div class="text-right">
+                            <div class="font-medium">${UIUtils.formatarMoeda(dados.valor)}</div>
+                            <div class="text-xs text-gray-500">${dados.percentual}%</div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            detalhesHTML += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        detalhesHTML += `
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <h4 class="font-bold text-green-800 mb-2">Total do Imposto</h4>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-green-700">${UIUtils.formatarMoeda(resultadoCalculo.valorImposto)}</div>
+                        <div class="text-sm text-gray-600 mt-1">Calculado em ${UIUtils.formatarDataParaExibicao(resultadoCalculo.dataCalculo)}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Usar o modal existente ou criar um novo
+        this.mostrarModalDetalhes(`Detalhes do Cálculo - ${mesNome}`, detalhesHTML);
+    }
+
+    /**
+     * Mostra um modal com detalhes
+     */
+    mostrarModalDetalhes(titulo, conteudo) {
+        // Verificar se já existe modal
+        let modal = document.getElementById('modalDetalhesCalculo');
+        
+        if (!modal) {
+            // Criar novo modal
+            modal = document.createElement('div');
+            modal.id = 'modalDetalhesCalculo';
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden';
+            modal.innerHTML = `
+                <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden">
+                    <div class="flex justify-between items-center p-4 border-b">
+                        <h3 class="text-lg font-semibold" id="modalDetalhesTitulo"></h3>
+                        <button id="fecharModalDetalhes" class="text-gray-500 hover:text-gray-700">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="p-4 overflow-y-auto max-h-[60vh]" id="modalDetalhesConteudo"></div>
+                    <div class="p-4 border-t text-right">
+                        <button id="btnFecharModalDetalhes" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Configurar eventos
+            document.getElementById('fecharModalDetalhes').addEventListener('click', () => {
+                modal.classList.add('hidden');
+            });
+            
+            document.getElementById('btnFecharModalDetalhes').addEventListener('click', () => {
+                modal.classList.add('hidden');
+            });
+            
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.add('hidden');
+                }
+            });
+        }
+        
+        // Preencher conteúdo
+        document.getElementById('modalDetalhesTitulo').textContent = titulo;
+        document.getElementById('modalDetalhesConteudo').innerHTML = conteudo;
+        
+        // Mostrar modal
+        modal.classList.remove('hidden');
+    }
+
+    atualizarLinhaMes(mes, resultadoCalculo) {
+        const linha = document.querySelector(`tr[data-mes="${mes}"]`);
+        if (!linha) {
+            console.warn(`Linha do mês ${mes} não encontrada`);
+            return;
+        }
+
+        console.log(`🔄 Atualizando linha do mês ${mes}...`);
+
+        // Atualizar célula de imposto
+        const celulaImposto = linha.querySelector('td[data-campo="imposto"]');
+        if (celulaImposto) {
+            celulaImposto.innerHTML = `<span class="font-medium">${UIUtils.formatarMoeda(resultadoCalculo.valorImposto)}</span>`;
+            celulaImposto.className = 'px-4 py-3 border-b border-gray-200 text-sm text-green-700 font-medium';
+        }
+
+        // Atualizar status
+        const celulaStatus = linha.querySelector('td[data-campo="status"]');
+        if (celulaStatus) {
+            const badge = UIUtils.criarBadge('OK', 'success');
+            celulaStatus.innerHTML = '';
+            celulaStatus.appendChild(badge);
+        }
+
+        // Atualizar ação
+        const celulaAcao = linha.querySelector('td[data-campo="acao"]');
+        if (celulaAcao) {
+            celulaAcao.innerHTML = `
+                <div class="flex gap-1">
+                    <button class="btn-recalcular-imposto px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300" data-mes="${mes}">
+                        Recalcular
+                    </button>
+                    <button class="btn-ver-detalhes px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200" data-mes="${mes}">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            `;
+            
+            // Re-adicionar eventos
+            const btnRecalcular = celulaAcao.querySelector('.btn-recalcular-imposto');
+            if (btnRecalcular) {
+                btnRecalcular.addEventListener('click', (e) => {
+                    const mes = parseInt(e.target.getAttribute('data-mes'));
+                    this.calcularImpostoMes(mes, true);
+                });
+            }
+            
+            const btnDetalhes = celulaAcao.querySelector('.btn-ver-detalhes');
+            if (btnDetalhes) {
+                btnDetalhes.addEventListener('click', (e) => {
+                    const mes = parseInt(e.target.closest('button').getAttribute('data-mes'));
+                    this.mostrarDetalhesCalculo(mes, resultadoCalculo);
+                });
+            }
+        }
+
+        // Atualizar RBT12 se necessário (pode ter mudado)
+        const celulaRBT12 = linha.querySelector('td[data-campo="rbt12"]');
+        if (celulaRBT12 && resultadoCalculo.rbt12) {
+            celulaRBT12.textContent = UIUtils.formatarMoeda(resultadoCalculo.rbt12);
+        }
+
+        // Atualizar alíquota efetiva se houver coluna específica
+        const celulaAliquota = linha.querySelector('td[data-campo="aliquotaEfetiva"]');
+        if (celulaAliquota && resultadoCalculo.aliquotaEfetiva) {
+            celulaAliquota.textContent = `${resultadoCalculo.aliquotaEfetiva.toFixed(2)}%`;
+        }
+
+        console.log(`✅ Linha do mês ${mes} atualizada`);
+        
+        // Atualizar totais gerais
+        this.atualizarTotaisGerais();
+    }
+    
+    /**
+     * Atualiza os totais gerais na tabela
+     */
+    atualizarTotaisGerais() {
+        console.log('🔄 Atualizando totais gerais...');
+        
+        const tbody = document.getElementById('resumoTbody');
+        if (!tbody) return;
+        
+        let totalFaturamento = 0;
+        let totalImposto = 0;
+        let mesesComFaturamento = 0;
+        let mesesCalculados = 0;
+        
+        // Percorrer todas as linhas
+        tbody.querySelectorAll('tr[data-mes]').forEach(linha => {
+            const mes = parseInt(linha.getAttribute('data-mes'));
+            
+            // Buscar faturamento do mês
+            const faturamento = this.faturamentosAno.find(f => f.mes === mes);
+            if (faturamento) {
+                mesesComFaturamento++;
+                
+                // Somar faturamento
+                const faturamentoTotal = this.calcularFaturamentoTotal(faturamento);
+                totalFaturamento += faturamentoTotal;
+                
+                // Somar imposto se calculado
+                const celulaImposto = linha.querySelector('td[data-campo="imposto"]');
+                if (celulaImposto) {
+                    const textoImposto = celulaImposto.textContent.trim();
+                    if (textoImposto && textoImposto !== '-' && !textoImposto.includes('R$ 0,00')) {
+                        // Extrair valor numérico do texto formatado
+                        const valorTexto = textoImposto.replace(/[^\d,.-]/g, '').replace('.', '').replace(',', '.');
+                        const valorImposto = parseFloat(valorTexto) || 0;
+                        totalImposto += valorImposto;
+                        mesesCalculados++;
+                    }
+                }
+            }
+        });
+        
+        // Atualizar rodapé
+        this.atualizarRodape(totalFaturamento, totalImposto, mesesComFaturamento, mesesCalculados);
+    }
+
+    /**
+     * Atualiza o rodapé da tabela com os novos totais
+     */
+    atualizarRodape(totalFaturamento, totalImposto, mesesComFaturamento, mesesCalculados) {
+        const tfoot = document.getElementById('resumoTfoot');
+        if (!tfoot) return;
+        
+        // Encontrar células no rodapé
+        const celulas = tfoot.querySelectorAll('td');
+        if (celulas.length < 7) return; // Colunas básicas
+        
+        // Atualizar totais
+        // Coluna 2: Faturamento Total
+        if (celulas[2]) {
+            celulas[2].textContent = UIUtils.formatarMoeda(totalFaturamento);
+            celulas[2].className = 'px-4 py-3 border-b border-gray-200 text-sm text-right text-blue-700 font-semibold';
+        }
+        
+        // Coluna 4: Imposto Total (ajustar índice conforme suas colunas)
+        const indiceImposto = this.encontrarIndiceColuna('imposto');
+        if (indiceImposto >= 0 && celulas[indiceImposto]) {
+            celulas[indiceImposto].textContent = UIUtils.formatarMoeda(totalImposto);
+            celulas[indiceImposto].className = 'px-4 py-3 border-b border-gray-200 text-sm text-right text-green-700 font-semibold';
+        }
+        
+        // Coluna de status: mostrar contagem
+        const indiceStatus = this.encontrarIndiceColuna('status');
+        if (indiceStatus >= 0 && celulas[indiceStatus]) {
+            const badgeMeses = UIUtils.criarBadge(`${mesesComFaturamento}/12 meses`, 
+                mesesComFaturamento === 12 ? 'success' : 'warning');
+            const badgeCalculos = UIUtils.criarBadge(`${mesesCalculados}/${mesesComFaturamento} calculados`, 
+                mesesCalculados === mesesComFaturamento ? 'success' : 'warning');
+            
+            celulas[indiceStatus].innerHTML = '';
+            const container = document.createElement('div');
+            container.className = 'flex flex-col gap-1';
+            container.appendChild(badgeMeses);
+            container.appendChild(badgeCalculos);
+            celulas[indiceStatus].appendChild(container);
+        }
+        
+        console.log(`📊 Totais atualizados: Faturamento ${UIUtils.formatarMoeda(totalFaturamento)}, Imposto ${UIUtils.formatarMoeda(totalImposto)}`);
+    }
+
+    /**
+     * Encontra o índice de uma coluna específica
+     */
+    encontrarIndiceColuna(campo) {
+        const thead = document.getElementById('resumoThead');
+        if (!thead) return -1;
+        
+        const headers = thead.querySelectorAll('th');
+        for (let i = 0; i < headers.length; i++) {
+            if (headers[i].getAttribute('data-campo') === campo) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    async calcularMesesFaltantes() {
+        if (!this.empresaSelecionada || !this.anoSelecionado) {
+            UIUtils.mostrarToast('Primeiro carregue o resumo de uma empresa/ano', 'warning');
+            return;
+        }
+
+        // Mostrar loader para cálculo em lote
+        UIUtils.mostrarLoader('resumoContainer', 'Calculando meses faltantes...');
+
+        // Re-criar resumo para verificar meses que precisam de cálculo
+        const mesesParaCalcular = [];
+        for (let mes = 1; mes <= 12; mes++) {
+            const resumoMes = await this.criarResumoMes(mes);
+            if (resumoMes.faturamento && (resumoMes.precisaCalcular || resumoMes.calculoDesatualizado)) {
+                mesesParaCalcular.push(mes);
+            }
+        }
+
+        if (mesesParaCalcular.length === 0) {
+            UIUtils.mostrarToast('✅ Todos os meses já estão com cálculo atualizado', 'success');
+            UIUtils.esconderLoader('resumoContainer');
+            return;
+        }
+
+        const confirmar = confirm(`Deseja calcular impostos para ${mesesParaCalcular.length} mês(es) faltante(s)?\n\nMeses: ${mesesParaCalcular.map(m => this.getNomeMes(m)).join(', ')}`);
+        if (!confirmar) {
+            UIUtils.esconderLoader('resumoContainer');
+            return;
+        }
+
+        UIUtils.mostrarToast(`⏳ Calculando ${mesesParaCalcular.length} meses...`, 'info');
+
+        let calculadosComSucesso = 0;
+        let erros = 0;
+
+        for (const mes of mesesParaCalcular) {
+            try {
+                await this.calcularImpostoMes(mes);
+                calculadosComSucesso++;
+                
+                // Pequeno delay para animação
+                await new Promise(resolve => setTimeout(resolve, 300));
+            } catch (error) {
+                console.error(`Erro no mês ${mes}:`, error);
+                erros++;
+            }
+        }
+
+        // RECARREGAR TODO O RESUMO após cálculos em lote
+        if (calculadosComSucesso > 0) {
+            UIUtils.mostrarToast(`✅ Cálculos completos! ${calculadosComSucesso} calculados, ${erros} erros. Recarregando resumo...`, 'success');
+            
+            // Pequeno delay para mostrar mensagem
+            setTimeout(() => {
+                this.carregarResumo();
+                UIUtils.esconderLoader('resumoContainer');
+            }, 1500);
+        } else if (erros > 0) {
+            UIUtils.mostrarToast(`❌ ${erros} erros encontrados durante os cálculos`, 'error');
+            UIUtils.esconderLoader('resumoContainer');
+        } else {
+            UIUtils.esconderLoader('resumoContainer');
+        }
+    }
+
+    irParaRegistroFaturamento(mes) {
+        // Mudar para aba de faturamento
+        switchTab('faturamento');
+        
+        // Preencher formulário com mês selecionado
+        setTimeout(() => {
+            const selectEmpresa = document.getElementById('cnpjFaturamento');
+            const inputMes = document.getElementById('mesFaturamento');
+            
+            if (selectEmpresa && inputMes) {
+                selectEmpresa.value = this.empresaSelecionada;
+                
+                // Formatar mês para o input type="month"
+                const mesFormatado = this.anoSelecionado + '-' + mes.toString().padStart(2, '0');
+                inputMes.value = mesFormatado;
+                
+                // Disparar eventos para carregar situação
+                selectEmpresa.dispatchEvent(new Event('change'));
+                inputMes.dispatchEvent(new Event('change'));
+                
+                UIUtils.mostrarToast(`Preencha o faturamento para ${this.getNomeMes(mes)}/${this.anoSelecionado}`, 'info');
+            }
+        }, 500);
+    }
+    
+    /**
+     * Cálculo de imposto usando uma faixa específica
+     */
+    calcularComFaixa(rbt12, faixa, faturamento) {
+        console.log(`📊 Calculando imposto com faixa: ${faixa.nomeFaixa}`);
+        
+        // 1. Calcular FATURAMENTO DO MÊS (RBP) - CORREÇÃO AQUI
+        const faturamentoMes = this.calcularFaturamentoTotal(faturamento);
+        
+        // 2. Calcular imposto base: (RBT12 * aliquota) - dedução
+        const aliquotaDecimal = faixa.aliquota / 100;
+        let impostoBaseRbt12 = (rbt12 * aliquotaDecimal) - (faixa.valorDeduzir || 0);
+        impostoBaseRbt12 = Math.max(0, impostoBaseRbt12); // Não pode ser negativo
+        
+        // 3. Calcular alíquota efetiva baseada no RBT12
+        const aliquotaEfetiva = rbt12 > 0 ? (impostoBaseRbt12 / rbt12) * 100 : 0;
+        
+        // 4. Aplicar alíquota efetiva ao FATURAMENTO DO MÊS (CORREÇÃO)
+        let impostoFinal = faturamentoMes * (aliquotaEfetiva / 100);
+        
+        // 5. Verificar se há repartição cadastrada
+        const reparticao = {};
+        let totalReparticao = 0;
+        
+        if (faixa.reparticao && typeof faixa.reparticao === 'object') {
+            console.log('📊 Repartição encontrada:', faixa.reparticao);
+            
+            // Calcular valor de cada tributo
+            Object.entries(faixa.reparticao).forEach(([tributo, percentual]) => {
+                if (percentual > 0) {
+                    const valorTributo = impostoFinal * (percentual / 100);
+                    reparticao[tributo] = {
+                        percentual: percentual,
+                        valor: valorTributo
+                    };
+                    totalReparticao += valorTributo;
+                }
+            });
+            
+            // Verificar se a soma da repartição é 100%
+            const somaPercentuais = Object.values(faixa.reparticao).reduce((a, b) => a + b, 0);
+            if (Math.abs(somaPercentuais - 100) > 0.1) {
+                console.warn(`⚠️ Soma da repartição não é 100%: ${somaPercentuais}%`);
+            }
+        } else {
+            console.warn('📊 Nenhuma repartição encontrada na faixa');
+        }
+
+        // 6. Definir valor final do imposto
+        impostoFinal = totalReparticao > 0 ? totalReparticao : impostoFinal;
+        
+        console.log(`📊 RBT12 (para faixa): ${UIUtils.formatarMoeda(rbt12)}`);
+        console.log(`📊 Faturamento do mês (RBP): ${UIUtils.formatarMoeda(faturamentoMes)}`);
+        console.log(`📊 Alíquota nominal: ${faixa.aliquota}%`);
+        console.log(`📊 Alíquota efetiva: ${aliquotaEfetiva.toFixed(2)}%`);
+        console.log(`📊 Imposto calculado: ${UIUtils.formatarMoeda(impostoFinal)}`);
+
+        return {
+            valorImposto: impostoFinal,
+            reparticao: reparticao,
+            rbt12: rbt12,
+            rbp: faturamentoMes, // Adicionar RBP ao resultado
+            faixaUtilizada: faixa.nomeFaixa,
+            anexo: faixa.anexo || 'Não especificado',
+            aliquotaNominal: faixa.aliquota,
+            aliquotaEfetiva: aliquotaEfetiva,
+            deducaoAplicada: faixa.valorDeduzir || 0,
+            dataCalculo: new Date().toISOString(),
+            hash: this.calcularHashFaturamento(faturamento),
+            detalhes: {
+                rbtInicioFaixa: faixa.rbtInicio,
+                rbtFimFaixa: faixa.rbtFim,
+                impostoBaseRbt12: impostoBaseRbt12,
+                faturamentoMes: faturamentoMes,
+                percentuaisReparticao: faixa.reparticao || {}
+            }
+        };
+    }
+    /**
+     * Método para debug detalhado das faixas
+     */
+    debugFaixasDetalhado() {
+        console.log('🔍 DEBUG DETALHADO: Estrutura das faixas');
+        
+        const todasFaixas = DataStore.obterTodos('faixasSimples', []);
+        
+        // Agrupar por anexo
+        const faixasPorAnexo = {};
+        
+        todasFaixas.forEach(faixa => {
+            const anexo = faixa.anexo || 'SEM_ANEXO';
+            if (!faixasPorAnexo[anexo]) {
+                faixasPorAnexo[anexo] = [];
+            }
+            faixasPorAnexo[anexo].push(faixa);
+        });
+        
+        // Ordenar anexos
+        Object.keys(faixasPorAnexo).sort().forEach(anexo => {
+            console.log(`\n📂 ANEXO ${anexo}: ${faixasPorAnexo[anexo].length} faixas`);
+            
+            // Ordenar faixas por RBT Início
+            faixasPorAnexo[anexo]
+                .sort((a, b) => a.rbtInicio - b.rbtInicio)
+                .forEach((faixa, index) => {
+                    console.log(`  ${index + 1}. ${faixa.nomeFaixa}`);
+                    console.log(`     RBT: ${UIUtils.formatarMoeda(faixa.rbtInicio)} - ${UIUtils.formatarMoeda(faixa.rbtFim)}`);
+                    console.log(`     Alíquota: ${faixa.aliquota}%`);
+                    console.log(`     Dedução: ${UIUtils.formatarMoeda(faixa.valorDeduzir || 0)}`);
+                    console.log(`     Vigência: ${faixa.vigencia || 'Não informada'}`);
+                    
+                    if (faixa.reparticao) {
+                        const soma = Object.values(faixa.reparticao).reduce((a, b) => a + b, 0);
+                        console.log(`     Repartição: ${soma.toFixed(1)}% (${Object.keys(faixa.reparticao).length} tributos)`);
+                    }
+                });
+        });
+        
+        console.log(`\n📊 TOTAL: ${todasFaixas.length} faixas cadastradas`);
+    }
+}
+
+// Inicializar quando a aba de resumo estiver ativa
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('resumoTab')) {
+        window.resumoController = new ResumoController();
+    }
+});

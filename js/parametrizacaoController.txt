@@ -1,0 +1,1696 @@
+// js/parametrizacaoController.js
+/**
+ * CONTROLLER DE PARAMETRIZAÇÃO - Gerencia cadastro de alíquotas
+ * Fluxo 1 do sistema: Cadastro de regimes tributários
+ */
+
+class ParametrizacaoController {
+    constructor() {
+        this.modoEdicao = false;
+        this.itemEditandoId = null;
+        this.regimeAtual = 'simples';
+        
+        this.inicializar();
+    }
+
+    /**
+     * Inicializa o controller
+     */
+    inicializar() {
+        console.log('✅ Inicializando ParametrizacaoController...');
+        
+        // Verificar se estamos na aba de parametrização
+        if (!document.getElementById('parametrizacaoTab')) {
+            return;
+        }
+        
+        this.configurarEventos();
+        this.carregarDadosSimples();
+        this.carregarDadosPresumido();
+        this.carregarDadosReal();
+        
+        // Configurar eventos para subtabs
+        this.configurarSubTabs();
+		
+		// Garantir que UIUtils está disponível
+		if (typeof UIUtils === 'undefined' && typeof window.UIUtils !== 'undefined') {
+			// Se UIUtils não estiver definido mas window.UIUtils estiver, faça o alias
+		   window.UIUtils = window.UIUtils;
+		}
+                
+        console.log('✅ ParametrizacaoController inicializado');
+    }
+	
+	
+
+    /**
+     * Configura os eventos do controller
+     */
+    configurarEventos() {
+        // Botão nova faixa Simples
+        const btnNovaFaixa = document.getElementById('novaFaixaSimples');
+        if (btnNovaFaixa) {
+            btnNovaFaixa.addEventListener('click', () => this.mostrarFormularioSimples());
+        }
+
+        // Formulário Simples
+        const formSimples = document.getElementById('formFaixaSimples');
+        if (formSimples) {
+            formSimples.addEventListener('submit', (e) => this.salvarFaixaSimples(e));
+        }
+
+        // Botão cancelar Simples
+        const btnCancelarSimples = document.getElementById('cancelarFaixaSimples');
+        if (btnCancelarSimples) {
+            btnCancelarSimples.addEventListener('click', () => this.cancelarFormularioSimples());
+        }
+		
+		// Configurar botões de fechar (X)
+		const btnFecharSimples = document.getElementById('fecharFormSimples');
+		if (btnFecharSimples) {
+			btnFecharSimples.addEventListener('click', (e) => {
+				e.preventDefault();
+				fecharFormSimples();
+			});
+		}
+
+        // Campos de repartição Simples
+        const camposReparticao = [
+            'repIRPJ', 'repCSLL', 'repCOFINS', 'repPIS', 'repCPP', 'repICMS', 'repISS', 'repIPI'
+        ];
+        
+        camposReparticao.forEach(id => {
+            const campo = document.getElementById(id);
+            if (campo) {
+                campo.addEventListener('input', () => this.calcularSomaReparticao());
+            }
+        });
+
+        // Botões para Lucro Presumido
+        const btnNovaPresumido = document.getElementById('novaConfigPresumido');
+        if (btnNovaPresumido) {
+            btnNovaPresumido.addEventListener('click', () => this.mostrarFormularioPresumido());
+        }
+
+        const formPresumido = document.getElementById('formPresumido');
+        if (formPresumido) {
+            formPresumido.addEventListener('submit', (e) => this.salvarConfigPresumido(e));
+        }
+
+        const btnCancelarPresumido = document.getElementById('cancelarPresumido');
+        if (btnCancelarPresumido) {
+            btnCancelarPresumido.addEventListener('click', () => this.cancelarFormularioPresumido());
+        }
+		
+		const btnFecharPresumido = document.getElementById('fecharFormPresumido');
+		if (btnFecharPresumido) {
+			btnFecharPresumido.addEventListener('click', (e) => {
+				e.preventDefault();
+				fecharFormPresumido();
+			});
+		}
+		
+		// Evento para atualizar valores de presunção quando selecionar tipo
+		const selectTipoPresuncao = document.getElementById('presumidoTipo');
+		if (selectTipoPresuncao) {
+			selectTipoPresuncao.addEventListener('change', () => {
+				this.preencherValoresPresuncao();
+			});
+		}
+
+        // Botões para Lucro Real
+        const btnNovaReal = document.getElementById('novaConfigReal');
+        if (btnNovaReal) {
+            btnNovaReal.addEventListener('click', () => this.mostrarFormularioReal());
+        }
+
+        const formReal = document.getElementById('formReal');
+        if (formReal) {
+            formReal.addEventListener('submit', (e) => this.salvarConfigReal(e));
+        }
+
+        const btnCancelarReal = document.getElementById('cancelarReal');
+        if (btnCancelarReal) {
+            btnCancelarReal.addEventListener('click', () => this.cancelarFormularioReal());
+        }
+		
+		const btnFecharReal = document.getElementById('fecharFormReal');
+		if (btnFecharReal) {
+			btnFecharReal.addEventListener('click', (e) => {
+				e.preventDefault();
+				fecharFormReal();
+			});
+		}
+    }
+
+    /**
+     * Configura eventos das subtabs
+     */
+    configurarSubTabs() {
+        const subTabButtons = document.querySelectorAll('.sub-tab-button');
+        
+        subTabButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const subTabId = e.currentTarget.getAttribute('data-subtab');
+                this.switchSubTab(subTabId);
+            });
+        });
+    }
+
+    /**
+     * Muda entre as subtabs (Simples, Presumido, Real)
+     */
+    switchSubTab(subTabId) {
+        // Atualizar botões ativos
+        document.querySelectorAll('.sub-tab-button').forEach(el => {
+            el.classList.remove('bg-white', 'shadow-sm', 'text-brand-700');
+            el.classList.add('text-gray-600', 'hover:bg-white');
+        });
+        
+        const btnAtivo = document.querySelector(`[data-subtab="${subTabId}"]`);
+        if (btnAtivo) {
+            btnAtivo.classList.add('bg-white', 'shadow-sm', 'text-brand-700');
+            btnAtivo.classList.remove('text-gray-600', 'hover:bg-white');
+        }
+        
+        // Mostrar conteúdo da subtab
+        document.querySelectorAll('.sub-tab-content').forEach(el => {
+            el.classList.add('hidden');
+            el.classList.remove('active');
+        });
+        
+        const tabElement = document.getElementById(subTabId + 'Tab');
+        if (tabElement) {
+            tabElement.classList.remove('hidden');
+            tabElement.classList.add('active');
+        }
+        
+        this.regimeAtual = subTabId;
+    }
+
+    // ==================== SIMPLES NACIONAL ====================
+
+    /**
+     * Mostra o formulário para nova faixa Simples
+     */
+    mostrarFormularioSimples() {
+        const container = document.getElementById('containerFormFaixaSimples');
+        if (container) {
+            container.classList.remove('hidden');
+            container.scrollIntoView({ behavior: 'smooth' });
+            
+            // Resetar formulário
+            this.limparFormularioSimples();
+        }
+    }
+
+    /**
+     * Limpa o formulário Simples
+     */
+    limparFormularioSimples() {
+        const form = document.getElementById('formFaixaSimples');
+        if (form) {
+            form.reset();
+            document.getElementById('faixaId').value = '';
+            
+            // Resetar repartição
+            const camposReparticao = [
+                'repIRPJ', 'repCSLL', 'repCOFINS', 'repPIS', 'repCPP', 'repICMS', 'repISS', 'repIPI'
+            ];
+            
+            camposReparticao.forEach(id => {
+                const campo = document.getElementById(id);
+                if (campo) campo.value = '0';
+            });
+            
+            this.calcularSomaReparticao();
+            
+            // Resetar modo
+            this.modoEdicao = false;
+            this.itemEditandoId = null;
+            
+            // Atualizar botão
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.textContent = 'Salvar Faixa';
+            }
+        }
+    }
+
+    /**
+     * Cancela o formulário Simples
+     */
+    cancelarFormularioSimples() {
+        const container = document.getElementById('containerFormFaixaSimples');
+        if (container) {
+            container.classList.add('hidden');
+            this.limparFormularioSimples();
+        }
+    }
+
+    /**
+     * Calcula a soma da repartição de tributos
+     */
+    calcularSomaReparticao() {
+        const campos = [
+            'repIRPJ', 'repCSLL', 'repCOFINS', 'repPIS', 'repCPP', 'repICMS', 'repISS', 'repIPI'
+        ];
+        
+        let soma = 0;
+        let todosZerados = true;
+        
+        campos.forEach(id => {
+            const campo = document.getElementById(id);
+            if (campo) {
+                const valor = parseFloat(campo.value) || 0;
+                soma += valor;
+                if (valor > 0) todosZerados = false;
+            }
+        });
+        
+        // Atualizar display
+        const somaElement = document.getElementById('somaReparticao');
+        const statusElement = document.getElementById('statusReparticao');
+        
+        if (somaElement) {
+            somaElement.textContent = `Soma: ${soma.toFixed(2)}%`;
+            
+            if (statusElement) {
+                if (Math.abs(soma - 100) < 0.01) { // Permite pequena diferença de arredondamento
+                    somaElement.classList.add('text-green-600');
+                    somaElement.classList.remove('text-red-600', 'text-yellow-600');
+                    statusElement.textContent = '✓ Soma correta';
+                    statusElement.className = 'text-xs text-green-600 hidden';
+                } else if (todosZerados) {
+                    somaElement.classList.add('text-yellow-600');
+                    somaElement.classList.remove('text-red-600', 'text-green-600');
+                    statusElement.textContent = '⚠ Todos os campos estão zerados';
+                    statusElement.className = 'text-xs text-yellow-600';
+                } else {
+                    somaElement.classList.add('text-red-600');
+                    somaElement.classList.remove('text-green-600', 'text-yellow-600');
+                    statusElement.textContent = `✗ A soma deve ser 100% (diferença: ${(soma - 100).toFixed(2)}%)`;
+                    statusElement.className = 'text-xs text-red-600';
+                }
+            }
+        }
+        
+        return soma;
+    }
+
+    /**
+     * Valida uma faixa do Simples Nacional
+     */
+    validarFaixaSimples(dados) {
+        const erros = [];
+        
+        if (!dados.anexo) {
+            erros.push('Selecione o anexo');
+        }
+        
+        if (!dados.vigencia) {
+            erros.push('Informe a vigência');
+        }
+        
+        if (!dados.nomeFaixa || dados.nomeFaixa.trim() === '') {
+            erros.push('Informe o nome da faixa');
+        }
+        
+        const aliquota = parseFloat(dados.aliquota);
+        if (isNaN(aliquota) || aliquota < 0 || aliquota > 100) {
+            erros.push('Alíquota deve estar entre 0% e 100%');
+        }
+        
+        const inicio = parseFloat(dados.rbtInicio);
+        const fim = parseFloat(dados.rbtFim);
+        if (isNaN(inicio) || inicio < 0) {
+            erros.push('RBT Início deve ser um valor positivo');
+        }
+        
+        if (isNaN(fim) || fim < 0) {
+            erros.push('RBT Fim deve ser um valor positivo');
+        }
+        
+        if (fim <= inicio) {
+            erros.push('RBT Fim deve ser maior que RBT Início');
+        }
+        
+        // Validar repartição
+        const soma = this.calcularSomaReparticao();
+        if (Math.abs(soma - 100) > 0.01) {
+            erros.push(`A soma da repartição deve ser 100% (atual: ${soma.toFixed(2)}%)`);
+        }
+        
+        return erros;
+    }
+
+    /**
+     * Coleta dados do formulário Simples
+     */
+    coletarDadosSimples() {
+        return {
+            anexo: document.getElementById('faixaAnexo').value,
+            vigencia: document.getElementById('faixaVigencia').value,
+            nomeFaixa: document.getElementById('faixaNome').value,
+            aliquota: parseFloat(document.getElementById('faixaAliquota').value) || 0,
+            rbtInicio: parseFloat(document.getElementById('faixaInicio').value) || 0,
+            rbtFim: parseFloat(document.getElementById('faixaFim').value) || 0,
+            valorDeduzir: parseFloat(document.getElementById('faixaDeduzir').value) || 0,
+            reparticao: {
+                IRPJ: parseFloat(document.getElementById('repIRPJ').value) || 0,
+                CSLL: parseFloat(document.getElementById('repCSLL').value) || 0,
+                COFINS: parseFloat(document.getElementById('repCOFINS').value) || 0,
+                PIS: parseFloat(document.getElementById('repPIS').value) || 0,
+                CPP: parseFloat(document.getElementById('repCPP').value) || 0,
+                ICMS: parseFloat(document.getElementById('repICMS').value) || 0,
+                ISS: parseFloat(document.getElementById('repISS').value) || 0,
+                IPI: parseFloat(document.getElementById('repIPI').value) || 0
+            }
+        };
+    }
+
+    /**
+     * Salva ou atualiza uma faixa do Simples
+     */
+    salvarFaixaSimples(event) {
+        event.preventDefault();
+        
+        const dados = this.coletarDadosSimples();
+        const erros = this.validarFaixaSimples(dados);
+        
+        if (erros.length > 0) {
+            UIUtils.mostrarToast(`Erros de validação:<br>• ${erros.join('<br>• ')}`, 'error');
+            return;
+        }
+        
+        // Adicionar metadados
+        const faixaCompleta = {
+            ...dados,
+            tipo: 'simples',
+            dataCadastro: new Date().toISOString(),
+            dataAtualizacao: new Date().toISOString()
+        };
+        
+        // Salvar ou atualizar
+        let resultado;
+        if (this.modoEdicao && this.itemEditandoId) {
+            resultado = DataStore.atualizarItem('faixasSimples', this.itemEditandoId, faixaCompleta);
+        } else {
+            resultado = DataStore.salvarItem('faixasSimples', faixaCompleta);
+        }
+        
+        if (resultado.success) {
+            UIUtils.mostrarToast(
+                this.modoEdicao ? 
+                '✅ Faixa atualizada com sucesso!' : 
+                '✅ Faixa cadastrada com sucesso!', 
+                'success'
+            );
+            
+            this.cancelarFormularioSimples();
+            this.carregarDadosSimples();
+        } else {
+            UIUtils.mostrarToast(`❌ Erro ao salvar: ${resultado.error}`, 'error');
+        }
+    }
+
+    /**
+     * Carrega as faixas do Simples Nacional
+     */
+    carregarDadosSimples() {
+        const container = document.getElementById('listaFaixasSimples');
+        if (!container) return;
+        
+        const faixas = DataStore.obterTodos('faixasSimples', []);
+        
+        if (faixas.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-400">
+                    <i class="fas fa-layer-group text-3xl mb-2"></i>
+                    <p>Nenhuma faixa cadastrada</p>
+                    <p class="text-sm mt-1">Clique em "Nova Faixa" para cadastrar a primeira</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Agrupar por anexo
+        const faixasPorAnexo = {};
+        faixas.forEach(faixa => {
+            if (!faixasPorAnexo[faixa.anexo]) {
+                faixasPorAnexo[faixa.anexo] = [];
+            }
+            faixasPorAnexo[faixa.anexo].push(faixa);
+        });
+        
+        let html = '';
+        
+        // Gerar HTML para cada anexo com toggle individual
+		Object.keys(faixasPorAnexo).sort().forEach(anexo => {
+			const faixasAnexo = faixasPorAnexo[anexo];
+			const nomeAnexo = this.getNomeAnexo(anexo);
+			const anexoId = `anexo-${anexo}`;
+			
+			html += `
+				<div class="border border-gray-200 rounded-lg overflow-hidden mb-6 grupo-anexo">
+					<!-- Cabeçalho do Anexo com Toggle -->
+					<div class="bg-gray-50 px-4 py-3 border-b flex justify-between items-center cursor-pointer toggle-anexo-header"
+						 data-anexo="${anexo}"
+						 data-toggle="true">
+						<div class="flex items-center gap-3">
+							<i class="fas fa-chevron-down text-brand-600 toggle-icon" id="icon-anexo-${anexo}"></i>
+							<h4 class="font-bold text-gray-700">
+								Anexo ${anexo} - ${nomeAnexo}
+								<span class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded ml-2">
+									${faixasAnexo.length} faixa(s)
+								</span>
+							</h4>
+						</div>
+						<div class="flex items-center gap-2">
+							<span class="text-xs text-gray-500 toggle-status" id="status-anexo-${anexo}">
+								Mostrando
+							</span>
+							<button class="text-gray-500 hover:text-gray-700 toggle-btn" data-anexo="${anexo}">
+								<i class="fas fa-eye"></i>
+							</button>
+						</div>
+					</div>
+					
+					<!-- Conteúdo das Faixas (visível por padrão) -->
+					<div class="faixas-container" id="faixas-anexo-${anexo}">
+						<div class="divide-y divide-gray-100">
+			`;
+			
+			faixasAnexo.forEach(faixa => {
+				const vigenciaFormatada = faixa.vigencia ? 
+					`${faixa.vigencia.split('-')[1]}/${faixa.vigencia.split('-')[0]}` : 
+					'Não informada';
+				
+				html += `
+					<div class="p-4 hover:bg-gray-50 faixa-item">
+						<div class="flex justify-between items-start">
+							<div>
+								<h5 class="font-medium text-gray-800">${faixa.nomeFaixa}</h5>
+								<div class="flex items-center gap-4 mt-1 text-sm text-gray-600">
+									<span><i class="fas fa-calendar-alt mr-1"></i>Vigência: ${vigenciaFormatada}</span>
+									<span><i class="fas fa-percentage mr-1"></i>Alíquota: ${faixa.aliquota}%</span>
+									<span><i class="fas fa-chart-line mr-1"></i>RBT: ${UIUtils.formatarMoeda(faixa.rbtInicio)} a ${UIUtils.formatarMoeda(faixa.rbtFim)}</span>
+								</div>
+							</div>
+							<div class="flex gap-2">
+								<button class="btn-editar-faixa text-blue-600 hover:text-blue-800 p-1"
+										data-id="${faixa.id}" title="Editar">
+									<i class="fas fa-edit"></i>
+								</button>
+								<button class="btn-excluir-faixa text-red-600 hover:text-red-800 p-1"
+										data-id="${faixa.id}" title="Excluir">
+									<i class="fas fa-trash"></i>
+								</button>
+							</div>
+						</div>
+						
+						<!-- Repartição dos tributos -->
+						<div class="mt-3">
+							<h6 class="text-xs font-medium text-gray-500 mb-1">Repartição dos Tributos:</h6>
+							<div class="flex flex-wrap gap-1">
+				`;
+				
+				Object.entries(faixa.reparticao || {}).forEach(([tributo, percentual]) => {
+					if (percentual > 0) {
+						html += `
+							<span class="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+								${tributo}: ${percentual}%
+							</span>
+						`;
+					}
+				});
+				
+				html += `
+							</div>
+						</div>
+					</div>
+				`;
+			});
+			
+			html += `
+						</div>
+					</div>
+				</div>
+			`;
+		});
+		
+		// Adicionar botão para expandir/recolher todos os anexos
+		html += `
+			<div class="flex justify-center mt-6">
+				<button id="toggleTodosAnexos" 
+						class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
+					<i class="fas fa-expand-alt"></i> <span>Expandir Todos os Anexos</span>
+				</button>
+			</div>
+		`;		
+        
+         container.innerHTML = html;
+    
+		// Adicionar eventos aos botões
+		this.adicionarEventosListaSimples();
+		this.configurarToggleAnexos();
+		
+		// Inicializar estado dos toggles (todos abertos por padrão)
+		this.inicializarToggleAnexos();
+    }
+
+    /**
+     * Retorna o nome completo do anexo
+     */
+    getNomeAnexo(codigo) {
+        const anexos = {
+            'I': 'Comércio',
+            'II': 'Indústria',
+            'III': 'Serviços',
+            'IV': 'Serviços (+)',
+            'V': 'Serviços (++)'
+        };
+        return anexos[codigo] || `Anexo ${codigo}`;
+    }
+
+    /**
+     * Adiciona eventos aos botões da lista Simples
+     */
+	adicionarEventosListaSimples() {
+		// Editar
+		document.querySelectorAll('.btn-editar-faixa').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation(); // Evitar que o clique afete o toggle do anexo
+				const faixaId = e.currentTarget.getAttribute('data-id');
+				this.editarFaixaSimples(faixaId);
+			});
+		});
+		
+		// Excluir
+		document.querySelectorAll('.btn-excluir-faixa').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation(); // Evitar que o clique afete o toggle do anexo
+				const faixaId = e.currentTarget.getAttribute('data-id');
+				this.confirmarExclusaoSimples(faixaId);
+			});
+		});
+	}
+
+    /**
+     * Preenche o formulário para edição (Simples)
+     */
+    editarFaixaSimples(faixaId) {
+        const faixa = DataStore.obterPorId('faixasSimples', faixaId);
+        if (!faixa) return;
+        
+        // Preencher campos
+        document.getElementById('faixaAnexo').value = faixa.anexo;
+        document.getElementById('faixaVigencia').value = faixa.vigencia;
+        document.getElementById('faixaNome').value = faixa.nomeFaixa;
+        document.getElementById('faixaAliquota').value = faixa.aliquota;
+        document.getElementById('faixaInicio').value = faixa.rbtInicio;
+        document.getElementById('faixaFim').value = faixa.rbtFim;
+        document.getElementById('faixaDeduzir').value = faixa.valorDeduzir || 0;
+        
+        // Preencher repartição
+        if (faixa.reparticao) {
+            document.getElementById('repIRPJ').value = faixa.reparticao.IRPJ || 0;
+            document.getElementById('repCSLL').value = faixa.reparticao.CSLL || 0;
+            document.getElementById('repCOFINS').value = faixa.reparticao.COFINS || 0;
+            document.getElementById('repPIS').value = faixa.reparticao.PIS || 0;
+            document.getElementById('repCPP').value = faixa.reparticao.CPP || 0;
+            document.getElementById('repICMS').value = faixa.reparticao.ICMS || 0;
+            document.getElementById('repISS').value = faixa.reparticao.ISS || 0;
+            document.getElementById('repIPI').value = faixa.reparticao.IPI || 0;
+        }
+        
+        // Calcular soma da repartição
+        this.calcularSomaReparticao();
+        
+        // Configurar modo edição
+        this.modoEdicao = true;
+        this.itemEditandoId = faixaId;
+        document.getElementById('faixaId').value = faixaId;
+        
+        // Mostrar formulário
+        const container = document.getElementById('containerFormFaixaSimples');
+        if (container) {
+            container.classList.remove('hidden');
+            container.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Atualizar botão
+        const submitBtn = document.querySelector('#formFaixaSimples button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.textContent = 'Atualizar Faixa';
+        }
+        
+        UIUtils.mostrarToast(`Editando: ${faixa.nomeFaixa}`, 'warning');
+    }
+
+    /**
+     * Confirma exclusão de faixa Simples
+     */
+    confirmarExclusaoSimples(faixaId) {
+        const faixa = DataStore.obterPorId('faixasSimples', faixaId);
+        if (!faixa) return;
+        
+        if (confirm(`Tem certeza que deseja excluir a faixa "${faixa.nomeFaixa}"?`)) {
+            const resultado = DataStore.excluirItem('faixasSimples', faixaId);
+            if (resultado.success) {
+                UIUtils.mostrarToast('✅ Faixa excluída com sucesso', 'success');
+                this.carregarDadosSimples();
+            } else {
+                UIUtils.mostrarToast(`❌ Erro ao excluir: ${resultado.error}`, 'error');
+            }
+        }
+    }
+	
+	/**
+	 * Configura os toggles dos anexos
+	 */
+	configurarToggleAnexos() {
+		// Configurar toggles individuais dos anexos
+		document.querySelectorAll('.toggle-anexo-header, .toggle-btn').forEach(element => {
+			element.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const anexo = element.getAttribute('data-anexo');
+				if (anexo) {
+					this.toggleAnexo(anexo);
+				}
+			});
+		});
+		
+		// Configurar botão "Expandir/Recolher Todos"
+		const toggleTodosBtn = document.getElementById('toggleTodosAnexos');
+		if (toggleTodosBtn) {
+			toggleTodosBtn.addEventListener('click', () => this.toggleTodosAnexos());
+		}
+	}
+
+	/**
+	 * Inicializa o estado dos toggles
+	 */
+	inicializarToggleAnexos() {
+		const anexos = document.querySelectorAll('.grupo-anexo');
+		anexos.forEach(grupo => {
+			const anexo = grupo.querySelector('.toggle-anexo-header').getAttribute('data-anexo');
+			// Verificar localStorage para estado salvo
+			const estadoSalvo = localStorage.getItem(`anexo-${anexo}-expandido`);
+			if (estadoSalvo === 'false') {
+				this.ocultarAnexo(anexo, true); // true para não salvar no localStorage novamente
+			}
+		});
+	}
+
+	/**
+	 * Alterna a visibilidade de um anexo específico
+	 */
+	toggleAnexo(anexo) {
+		const container = document.getElementById(`faixas-anexo-${anexo}`);
+		const icon = document.getElementById(`icon-anexo-${anexo}`);
+		const status = document.getElementById(`status-anexo-${anexo}`);
+		
+		if (!container || !icon) return;
+		
+		if (container.classList.contains('hidden')) {
+			// Mostrar
+			container.classList.remove('hidden');
+			icon.className = 'fas fa-chevron-down text-brand-600 toggle-icon';
+			if (status) status.textContent = 'Mostrando';
+			
+			// Animar a transição
+			container.style.maxHeight = container.scrollHeight + 'px';
+			container.style.opacity = '1';
+			
+			localStorage.setItem(`anexo-${anexo}-expandido`, 'true');
+		} else {
+			// Ocultar
+			this.ocultarAnexo(anexo);
+		}
+	}
+
+	/**
+	 * Oculta um anexo específico
+	 */
+	ocultarAnexo(anexo, skipLocalStorage = false) {
+		const container = document.getElementById(`faixas-anexo-${anexo}`);
+		const icon = document.getElementById(`icon-anexo-${anexo}`);
+		const status = document.getElementById(`status-anexo-${anexo}`);
+		
+		if (!container || !icon) return;
+		
+		container.classList.add('hidden');
+		icon.className = 'fas fa-chevron-right text-brand-600 toggle-icon';
+		if (status) status.textContent = 'Oculto';
+		
+		// Animar a transição
+		container.style.maxHeight = '0';
+		container.style.opacity = '0';
+		
+		if (!skipLocalStorage) {
+			localStorage.setItem(`anexo-${anexo}-expandido`, 'false');
+		}
+	}
+
+	/**
+	 * Mostra um anexo específico
+	 */
+	mostrarAnexo(anexo) {
+		const container = document.getElementById(`faixas-anexo-${anexo}`);
+		const icon = document.getElementById(`icon-anexo-${anexo}`);
+		const status = document.getElementById(`status-anexo-${anexo}`);
+		
+		if (!container || !icon) return;
+		
+		container.classList.remove('hidden');
+		icon.className = 'fas fa-chevron-down text-brand-600 toggle-icon';
+		if (status) status.textContent = 'Mostrando';
+		
+		// Animar a transição
+		container.style.maxHeight = container.scrollHeight + 'px';
+		container.style.opacity = '1';
+		
+		localStorage.setItem(`anexo-${anexo}-expandido`, 'true');
+	}
+
+	/**
+	 * Alterna todos os anexos (expandir/recolher todos)
+	 */
+	toggleTodosAnexos() {
+		const toggleBtn = document.getElementById('toggleTodosAnexos');
+		if (!toggleBtn) return;
+		
+		const icon = toggleBtn.querySelector('i');
+		const texto = toggleBtn.querySelector('span');
+		
+		// Verificar se algum está visível para determinar ação
+		const algumVisivel = Array.from(document.querySelectorAll('.faixas-container'))
+			.some(container => !container.classList.contains('hidden'));
+		
+		if (algumVisivel) {
+			// Recolher todos
+			document.querySelectorAll('.grupo-anexo').forEach(grupo => {
+				const anexo = grupo.querySelector('.toggle-anexo-header').getAttribute('data-anexo');
+				this.ocultarAnexo(anexo);
+			});
+			
+			icon.className = 'fas fa-expand-alt';
+			texto.textContent = 'Expandir Todos os Anexos';
+		} else {
+			// Expandir todos
+			document.querySelectorAll('.grupo-anexo').forEach(grupo => {
+				const anexo = grupo.querySelector('.toggle-anexo-header').getAttribute('data-anexo');
+				this.mostrarAnexo(anexo);
+			});
+			
+			icon.className = 'fas fa-compress-alt';
+			texto.textContent = 'Recolher Todos os Anexos';
+		}
+	}
+
+    // ==================== LUCRO PRESUMIDO ====================
+
+    /**
+     * Mostra formulário Presumido
+     */
+    mostrarFormularioPresumido() {
+        this.switchSubTab('presumido');
+        
+        const container = document.getElementById('containerFormPresumido');
+        if (container) {
+            container.classList.remove('hidden');
+            container.scrollIntoView({ behavior: 'smooth' });
+            this.limparFormularioPresumido();
+        }
+    }
+
+    /**
+     * Limpa formulário Presumido
+     */
+    limparFormularioPresumido() {
+        const form = document.getElementById('formPresumido');
+        if (form) {
+            form.reset();
+            document.getElementById('configPresumidoId').value = '';
+            this.modoEdicao = false;
+            this.itemEditandoId = null;
+            
+            // Preencher valores padrão conforme especificação
+            this.preencherValoresPresuncao();
+            
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.textContent = 'Salvar Configuração';
+            }
+        }
+    }
+	
+	/**
+     * Preenche valores de presunção baseado no tipo selecionado
+     */
+    preencherValoresPresuncao() {
+        const tipoPresuncao = document.getElementById('presumidoTipo').value;
+        const valores = this.getValoresPorTipoPresuncao(tipoPresuncao);
+        
+        document.getElementById('presumidoPresuncaoIRPJ').value = valores.presuncaoIRPJ;
+        document.getElementById('presuncaoCSLL').value = valores.presuncaoCSLL;
+    }
+
+    /**
+     * Retorna valores de presunção por tipo
+     */
+    getValoresPorTipoPresuncao(tipo) {
+        const valores = {
+            'grupo1': { presuncaoIRPJ: 8, presuncaoCSLL: 12 },
+            'grupo2': { presuncaoIRPJ: 16, presuncaoCSLL: 12 },
+            'grupo3': { presuncaoIRPJ: 32, presuncaoCSLL: 32 }
+        };
+        
+        return valores[tipo] || { presuncaoIRPJ: 0, presuncaoCSLL: 0 };
+    }
+
+    /**
+     * Retorna nome do tipo de presunção
+     */
+    getNomeTipoPresuncao(codigo) {
+        const nomes = {
+            'grupo1': 'Comércio/Indústria/Transporte Carga/Serviços Hospitalares',
+            'grupo2': 'Transporte (exceto carga)/Serviços Geral até R$ 120.000',
+            'grupo3': 'Serviços Geral acima de R$ 120.000'
+        };
+        return nomes[codigo] || `Tipo ${codigo}`;
+    }
+
+    /**
+     * Cancela formulário Presumido
+     */
+    cancelarFormularioPresumido() {
+        const container = document.getElementById('containerFormPresumido');
+        if (container) {
+            container.classList.add('hidden');
+            this.limparFormularioPresumido();
+        }
+    }
+
+    /**
+     * Salva configuração Presumido
+     */
+    salvarConfigPresumido(event) {
+        event.preventDefault();
+        
+        const dados = this.coletarDadosPresumido();
+        const erros = this.validarConfigPresumido(dados);
+        
+        if (erros.length > 0) {
+            UIUtils.mostrarToast(`Erros:<br>• ${erros.join('<br>• ')}`, 'error');
+            return;
+        }
+        
+        const configCompleta = {
+            ...dados,
+            tipo: 'presumido',
+            dataCadastro: new Date().toISOString(),
+            dataAtualizacao: new Date().toISOString()
+        };
+        
+        let resultado;
+        if (this.modoEdicao && this.itemEditandoId) {
+            resultado = DataStore.atualizarItem('configsPresumido', this.itemEditandoId, configCompleta);
+        } else {
+            resultado = DataStore.salvarItem('configsPresumido', configCompleta);
+        }
+        
+        if (resultado.success) {
+            UIUtils.mostrarToast(
+                this.modoEdicao ? '✅ Configuração atualizada!' : '✅ Configuração salva!',
+                'success'
+            );
+            this.cancelarFormularioPresumido();
+            this.carregarDadosPresumido();
+        } else {
+            UIUtils.mostrarToast(`❌ Erro: ${resultado.error}`, 'error');
+        }
+    }
+
+     /**
+     * Coleta dados Presumido
+     */
+    coletarDadosPresumido() {
+        const tipoPresuncao = document.getElementById('presumidoTipo').value;
+        const valoresPresuncao = this.getValoresPorTipoPresuncao(tipoPresuncao);
+        
+        return {
+            tipoPresuncao: tipoPresuncao,
+            vigencia: document.getElementById('presumidoVigencia').value,
+            nome: document.getElementById('presumidoNome').value,
+            atividade: document.getElementById('presumidoAtividade').value,
+            presuncaoIRPJ: parseFloat(valoresPresuncao.presuncaoIRPJ),
+            aliquotaIRPJ: parseFloat(document.getElementById('presumidoAliquotaIRPJ').value) || 0,
+            adicionalIRPJ: parseFloat(document.getElementById('presumidoAdicionalIRPJ').value) || 0,
+            presuncaoCSLL: parseFloat(valoresPresuncao.presuncaoCSLL),
+            aliquotaCSLL: parseFloat(document.getElementById('presumidoAliquotaCSLL').value) || 0,
+            pisCofins: parseFloat(document.getElementById('presumidoPISCOFINS').value) || 0,
+            iss: parseFloat(document.getElementById('presumidoISS').value) || 0,
+            icms: parseFloat(document.getElementById('presumidoICMS').value) || 0
+        };
+    }
+
+    /**
+     * Valida configuração Presumido
+     */
+    validarConfigPresumido(dados) {
+        const erros = [];
+        
+        if (!dados.tipoPresuncao) erros.push('Selecione o tipo de presunção');
+        if (!dados.vigencia) erros.push('Informe a vigência');
+        if (!dados.nome?.trim()) erros.push('Informe o nome da configuração');
+        
+        const camposNumericos = [
+            { nome: 'Alíquota IRPJ', valor: dados.aliquotaIRPJ, min: 0, max: 100 },
+            { nome: 'Adicional IRPJ', valor: dados.adicionalIRPJ, min: 0, max: 100 },
+            { nome: 'Alíquota CSLL', valor: dados.aliquotaCSLL, min: 0, max: 100 },
+            { nome: 'PIS/COFINS', valor: dados.pisCofins, min: 0, max: 100 },
+            { nome: 'ISS', valor: dados.iss, min: 0, max: 100 },
+            { nome: 'ICMS', valor: dados.icms, min: 0, max: 100 }
+        ];
+        
+        camposNumericos.forEach(campo => {
+            if (isNaN(campo.valor) || campo.valor < campo.min || campo.valor > campo.max) {
+                erros.push(`${campo.nome} deve estar entre ${campo.min}% e ${campo.max}%`);
+            }
+        });
+        
+        return erros;
+    }
+
+    /**
+     * Carrega dados Presumido
+     */
+    carregarDadosPresumido() {
+        const container = document.getElementById('listaConfigsPresumido');
+        if (!container) return;
+        
+        const configs = DataStore.obterTodos('configsPresumido', []);
+        
+        if (configs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-400">
+                    <i class="fas fa-calculator text-3xl mb-2"></i>
+                    <p>Nenhuma configuração cadastrada</p>
+                    <p class="text-sm mt-1">Clique em "Nova Configuração" para cadastrar</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Agrupar por tipo de presunção
+        const configsPorTipo = {};
+        configs.forEach(config => {
+            if (!configsPorTipo[config.tipoPresuncao]) {
+                configsPorTipo[config.tipoPresuncao] = [];
+            }
+            configsPorTipo[config.tipoPresuncao].push(config);
+        });
+        
+        let html = '';
+        
+        // Gerar HTML para cada tipo de presunção com toggle individual
+        Object.keys(configsPorTipo).sort().forEach(tipoCodigo => {
+            const configsTipo = configsPorTipo[tipoCodigo];
+            const nomeTipo = this.getNomeTipoPresuncao(tipoCodigo);
+            const tipoId = `tipo-${tipoCodigo}`;
+            
+            // Ordenar por vigência (mais recente primeiro)
+            configsTipo.sort((a, b) => new Date(b.vigencia) - new Date(a.vigencia));
+            
+            html += `
+                <div class="border border-gray-200 rounded-lg overflow-hidden mb-6 grupo-tipo">
+                    <!-- Cabeçalho do Tipo com Toggle -->
+                    <div class="bg-gray-50 px-4 py-3 border-b flex justify-between items-center cursor-pointer toggle-tipo-header"
+                         data-tipo="${tipoCodigo}"
+                         data-toggle="true">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-chevron-down text-brand-600 toggle-icon" id="icon-tipo-${tipoCodigo}"></i>
+                            <h4 class="font-bold text-gray-700">
+                                ${nomeTipo}
+                                <span class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded ml-2">
+                                    ${configsTipo.length} configuração(ões)
+                                </span>
+                            </h4>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 toggle-status" id="status-tipo-${tipoCodigo}">
+                                Mostrando
+                            </span>
+                            <button class="text-gray-500 hover:text-gray-700 toggle-btn" data-tipo="${tipoCodigo}">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Conteúdo das Configurações (visível por padrão) -->
+                    <div class="configs-container" id="configs-tipo-${tipoCodigo}">
+                        <div class="divide-y divide-gray-100">
+            `;
+            
+            configsTipo.forEach(config => {
+                const vigenciaFormatada = config.vigencia ? 
+                    `${config.vigencia.split('-')[1]}/${config.vigencia.split('-')[0]}` : '';
+                
+                html += `
+                    <div class="p-4 hover:bg-gray-50 config-item">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h5 class="font-medium text-gray-800">${config.nome}</h5>
+                                <div class="flex items-center gap-4 mt-1 text-sm text-gray-600">
+                                    <span><i class="fas fa-calendar-alt mr-1"></i>Vigência: ${vigenciaFormatada}</span>
+                                    <span><i class="fas fa-industry mr-1"></i>${config.atividade || 'Geral'}</span>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="btn-editar-presumido text-blue-600 hover:text-blue-800 p-1"
+                                        data-id="${config.id}" title="Editar">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn-excluir-presumido text-red-600 hover:text-red-800 p-1"
+                                        data-id="${config.id}" title="Excluir">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Alíquotas -->
+                        <div class="mt-3">
+                            <h6 class="text-xs font-medium text-gray-500 mb-1">Alíquotas e Presunções:</h6>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+                                <div class="bg-blue-50 p-2 rounded">
+                                    <div class="text-xs text-blue-600">IRPJ</div>
+                                    <div class="font-bold">${config.aliquotaIRPJ}% (Pres. ${config.presuncaoIRPJ}%)</div>
+                                </div>
+                                <div class="bg-green-50 p-2 rounded">
+                                    <div class="text-xs text-green-600">CSLL</div>
+                                    <div class="font-bold">${config.aliquotaCSLL}% (Pres. ${config.presuncaoCSLL}%)</div>
+                                </div>
+                                <div class="bg-purple-50 p-2 rounded">
+                                    <div class="text-xs text-purple-600">PIS/COFINS</div>
+                                    <div class="font-bold">${config.pisCofins}%</div>
+                                </div>
+                                <div class="bg-yellow-50 p-2 rounded">
+                                    <div class="text-xs text-yellow-600">ISS/ICMS</div>
+                                    <div class="font-bold">${config.iss}% / ${config.icms}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        // Adicionar botão para expandir/recolher todos os tipos
+        html += `
+            <div class="flex justify-center mt-6">
+                <button id="toggleTodosTipos" 
+                        class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
+                    <i class="fas fa-expand-alt"></i> <span>Expandir Todos os Tipos</span>
+                </button>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        this.adicionarEventosListaPresumido();
+        this.configurarToggleTipos();
+        this.inicializarToggleTipos();
+    }
+
+    /**
+     * Adiciona eventos lista Presumido
+     */
+    adicionarEventosListaPresumido() {
+        document.querySelectorAll('.btn-editar-presumido').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = e.currentTarget.getAttribute('data-id');
+                this.editarConfigPresumido(id);
+            });
+        });
+        
+        document.querySelectorAll('.btn-excluir-presumido').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = e.currentTarget.getAttribute('data-id');
+                this.confirmarExclusaoPresumido(id);
+            });
+        });
+    }
+
+    /**
+     * Editar configuração Presumido
+     */
+    editarConfigPresumido(configId) {
+        const config = DataStore.obterPorId('configsPresumido', configId);
+        if (!config) return;
+        
+        // Preencher campos
+        document.getElementById('presumidoTipo').value = config.tipoPresuncao || 'grupo1';
+        document.getElementById('presumidoVigencia').value = config.vigencia;
+        document.getElementById('presumidoNome').value = config.nome;
+        document.getElementById('presumidoAtividade').value = config.atividade || '';
+        document.getElementById('presumidoAliquotaIRPJ').value = config.aliquotaIRPJ;
+        document.getElementById('presumidoAdicionalIRPJ').value = config.adicionalIRPJ || 10;
+        document.getElementById('presumidoAliquotaCSLL').value = config.aliquotaCSLL;
+        document.getElementById('presumidoPISCOFINS').value = config.pisCofins;
+        document.getElementById('presumidoISS').value = config.iss;
+        document.getElementById('presumidoICMS').value = config.icms;
+        
+        // Preencher valores de presunção
+        this.preencherValoresPresuncao();
+        
+        // Configurar edição
+        this.modoEdicao = true;
+        this.itemEditandoId = configId;
+        document.getElementById('configPresumidoId').value = configId;
+        
+        // Mostrar formulário
+        const container = document.getElementById('containerFormPresumido');
+        if (container) {
+            container.classList.remove('hidden');
+            container.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Atualizar botão
+        const submitBtn = document.querySelector('#formPresumido button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.textContent = 'Atualizar Configuração';
+        }
+        
+        UIUtils.mostrarToast(`Editando: ${config.nome}`, 'warning');
+    }
+
+    /**
+     * Confirmar exclusão Presumido
+     */
+    confirmarExclusaoPresumido(configId) {
+        const config = DataStore.obterPorId('configsPresumido', configId);
+        if (!config) return;
+        
+        if (confirm(`Excluir configuração "${config.nome}"?`)) {
+            const resultado = DataStore.excluirItem('configsPresumido', configId);
+            if (resultado.success) {
+                UIUtils.mostrarToast('✅ Configuração excluída', 'success');
+                this.carregarDadosPresumido();
+            } else {
+                UIUtils.mostrarToast(`❌ Erro: ${resultado.error}`, 'error');
+            }
+        }
+    }
+	
+	/**
+     * Configurar toggles dos tipos de presunção
+     */
+    configurarToggleTipos() {
+        // Configurar toggles individuais dos tipos
+        document.querySelectorAll('.toggle-tipo-header, .toggle-btn').forEach(element => {
+            element.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const tipo = element.getAttribute('data-tipo');
+                if (tipo) {
+                    this.toggleTipo(tipo);
+                }
+            });
+        });
+        
+        // Configurar botão "Expandir/Recolher Todos"
+        const toggleTodosBtn = document.getElementById('toggleTodosTipos');
+        if (toggleTodosBtn) {
+            toggleTodosBtn.addEventListener('click', () => this.toggleTodosTipos());
+        }
+    }
+
+    /**
+     * Inicializa o estado dos toggles
+     */
+    inicializarToggleTipos() {
+        const tipos = document.querySelectorAll('.grupo-tipo');
+        tipos.forEach(grupo => {
+            const tipo = grupo.querySelector('.toggle-tipo-header').getAttribute('data-tipo');
+            const estadoSalvo = localStorage.getItem(`tipo-${tipo}-expandido`);
+            if (estadoSalvo === 'false') {
+                this.ocultarTipo(tipo, true);
+            }
+        });
+    }
+
+    /**
+     * Alterna a visibilidade de um tipo específico
+     */
+    toggleTipo(tipo) {
+        const container = document.getElementById(`configs-tipo-${tipo}`);
+        const icon = document.getElementById(`icon-tipo-${tipo}`);
+        const status = document.getElementById(`status-tipo-${tipo}`);
+        
+        if (!container || !icon) return;
+        
+        if (container.classList.contains('hidden')) {
+            // Mostrar
+            container.classList.remove('hidden');
+            icon.className = 'fas fa-chevron-down text-brand-600 toggle-icon';
+            if (status) status.textContent = 'Mostrando';
+            
+            localStorage.setItem(`tipo-${tipo}-expandido`, 'true');
+        } else {
+            // Ocultar
+            this.ocultarTipo(tipo);
+        }
+    }
+
+    /**
+     * Oculta um tipo específico
+     */
+    ocultarTipo(tipo, skipLocalStorage = false) {
+        const container = document.getElementById(`configs-tipo-${tipo}`);
+        const icon = document.getElementById(`icon-tipo-${tipo}`);
+        const status = document.getElementById(`status-tipo-${tipo}`);
+        
+        if (!container || !icon) return;
+        
+        container.classList.add('hidden');
+        icon.className = 'fas fa-chevron-right text-brand-600 toggle-icon';
+        if (status) status.textContent = 'Oculto';
+        
+        if (!skipLocalStorage) {
+            localStorage.setItem(`tipo-${tipo}-expandido`, 'false');
+        }
+    }
+
+    /**
+     * Mostra um tipo específico
+     */
+    mostrarTipo(tipo) {
+        const container = document.getElementById(`configs-tipo-${tipo}`);
+        const icon = document.getElementById(`icon-tipo-${tipo}`);
+        const status = document.getElementById(`status-tipo-${tipo}`);
+        
+        if (!container || !icon) return;
+        
+        container.classList.remove('hidden');
+        icon.className = 'fas fa-chevron-down text-brand-600 toggle-icon';
+        if (status) status.textContent = 'Mostrando';
+        
+        localStorage.setItem(`tipo-${tipo}-expandido`, 'true');
+    }
+
+    /**
+     * Alterna todos os tipos (expandir/recolher todos)
+     */
+    toggleTodosTipos() {
+        const toggleBtn = document.getElementById('toggleTodosTipos');
+        if (!toggleBtn) return;
+        
+        const icon = toggleBtn.querySelector('i');
+        const texto = toggleBtn.querySelector('span');
+        
+        // Verificar se algum está visível
+        const algumVisivel = Array.from(document.querySelectorAll('.configs-container'))
+            .some(container => !container.classList.contains('hidden'));
+        
+        if (algumVisivel) {
+            // Recolher todos
+            document.querySelectorAll('.grupo-tipo').forEach(grupo => {
+                const tipo = grupo.querySelector('.toggle-tipo-header').getAttribute('data-tipo');
+                this.ocultarTipo(tipo);
+            });
+            
+            icon.className = 'fas fa-expand-alt';
+            texto.textContent = 'Expandir Todos os Tipos';
+        } else {
+            // Expandir todos
+            document.querySelectorAll('.grupo-tipo').forEach(grupo => {
+                const tipo = grupo.querySelector('.toggle-tipo-header').getAttribute('data-tipo');
+                this.mostrarTipo(tipo);
+            });
+            
+            icon.className = 'fas fa-compress-alt';
+            texto.textContent = 'Recolher Todos os Tipos';
+        }
+    }
+
+    // ==================== LUCRO REAL ====================
+
+    /**
+     * Mostrar formulário Real
+     */
+    mostrarFormularioReal() {
+        this.switchSubTab('real');
+        
+        const container = document.getElementById('containerFormReal');
+        if (container) {
+            container.classList.remove('hidden');
+            container.scrollIntoView({ behavior: 'smooth' });
+            this.limparFormularioReal();
+        }
+    }
+
+    /**
+     * Limpar formulário Real
+     */
+    limparFormularioReal() {
+        const form = document.getElementById('formReal');
+        if (form) {
+            form.reset();
+            document.getElementById('configRealId').value = '';
+            this.modoEdicao = false;
+            this.itemEditandoId = null;
+            
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.textContent = 'Salvar Configuração';
+            }
+        }
+    }
+
+    /**
+     * Cancelar formulário Real
+     */
+    cancelarFormularioReal() {
+        const container = document.getElementById('containerFormReal');
+        if (container) {
+            container.classList.add('hidden');
+            this.limparFormularioReal();
+        }
+    }
+
+    /**
+     * Salvar configuração Real
+     */
+    salvarConfigReal(event) {
+        event.preventDefault();
+        
+        const dados = this.coletarDadosReal();
+        const erros = this.validarConfigReal(dados);
+        
+        if (erros.length > 0) {
+            UIUtils.mostrarToast(`Erros:<br>• ${erros.join('<br>• ')}`, 'error');
+            return;
+        }
+        
+        const configCompleta = {
+            ...dados,
+            tipo: 'real',
+            dataCadastro: new Date().toISOString(),
+            dataAtualizacao: new Date().toISOString()
+        };
+        
+        let resultado;
+        if (this.modoEdicao && this.itemEditandoId) {
+            resultado = DataStore.atualizarItem('configsReal', this.itemEditandoId, configCompleta);
+        } else {
+            resultado = DataStore.salvarItem('configsReal', configCompleta);
+        }
+        
+        if (resultado.success) {
+            UIUtils.mostrarToast(
+                this.modoEdicao ? '✅ Configuração atualizada!' : '✅ Configuração salva!',
+                'success'
+            );
+            this.cancelarFormularioReal();
+            this.carregarDadosReal();
+        } else {
+            UIUtils.mostrarToast(`❌ Erro: ${resultado.error}`, 'error');
+        }
+    }
+
+    /**
+     * Coletar dados Real
+     */
+    coletarDadosReal() {
+        return {
+            vigencia: document.getElementById('realVigencia').value,
+            nome: document.getElementById('realNome').value,
+            atividade: document.getElementById('realAtividade').value,
+            tipoEmpresa: document.getElementById('realTipo').value,
+            aliquotaIRPJ: parseFloat(document.getElementById('realAliquotaIRPJ').value) || 0,
+            adicionalIRPJ: parseFloat(document.getElementById('realAdicionalIRPJ').value) || 0,
+            aliquotaCSLL: parseFloat(document.getElementById('realAliquotaCSLL').value) || 0,
+            pis: parseFloat(document.getElementById('realPIS').value) || 0,
+            cofins: parseFloat(document.getElementById('realCOFINS').value) || 0,
+            csllAdicional: parseFloat(document.getElementById('realCSLLAdicional').value) || 0,
+            iss: parseFloat(document.getElementById('realISS').value) || 0,
+            icms: parseFloat(document.getElementById('realICMS').value) || 0,
+            isencaoIRPJ: parseFloat(document.getElementById('realIsencaoIRPJ').value) || 0,
+            isencaoCSLL: parseFloat(document.getElementById('realIsencaoCSLL').value) || 0,
+            limiteAdicional: parseFloat(document.getElementById('realLimiteAdicional').value) || 0
+        };
+    }
+
+    /**
+     * Validar configuração Real
+     */
+    validarConfigReal(dados) {
+        const erros = [];
+        
+        if (!dados.vigencia) erros.push('Informe a vigência');
+        if (!dados.nome?.trim()) erros.push('Informe o nome da configuração');
+        
+        const camposNumericos = [
+            { nome: 'Alíquota IRPJ', valor: dados.aliquotaIRPJ, min: 0, max: 100 },
+            { nome: 'Adicional IRPJ', valor: dados.adicionalIRPJ, min: 0, max: 100 },
+            { nome: 'Alíquota CSLL', valor: dados.aliquotaCSLL, min: 0, max: 100 },
+            { nome: 'PIS', valor: dados.pis, min: 0, max: 100 },
+            { nome: 'COFINS', valor: dados.cofins, min: 0, max: 100 },
+            { nome: 'CSLL Adicional', valor: dados.csllAdicional, min: 0, max: 100 },
+            { nome: 'ISS', valor: dados.iss, min: 0, max: 100 },
+            { nome: 'ICMS', valor: dados.icms, min: 0, max: 100 }
+        ];
+        
+        camposNumericos.forEach(campo => {
+            if (isNaN(campo.valor) || campo.valor < campo.min || campo.valor > campo.max) {
+                erros.push(`${campo.nome} deve estar entre ${campo.min}% e ${campo.max}%`);
+            }
+        });
+        
+        return erros;
+    }
+
+    /**
+     * Carregar dados Real
+     */
+    carregarDadosReal() {
+        const container = document.getElementById('listaConfigsReal');
+        if (!container) return;
+        
+        const configs = DataStore.obterTodos('configsReal', []);
+        
+        if (configs.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-400">
+                    <i class="fas fa-chart-line text-3xl mb-2"></i>
+                    <p>Nenhuma configuração cadastrada</p>
+                </div>
+            `;
+            return;
+        }
+        
+        let html = '';
+        
+        configs.forEach(config => {
+            const vigenciaFormatada = config.vigencia ? 
+                `${config.vigencia.split('-')[1]}/${config.vigencia.split('-')[0]}` : '';
+            
+            html += `
+                <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h4 class="font-bold text-gray-800">${config.nome}</h4>
+                            <div class="flex flex-wrap gap-4 mt-2 text-sm text-gray-600">
+                                <span><i class="fas fa-calendar-alt mr-1"></i>${vigenciaFormatada}</span>
+                                <span><i class="fas fa-industry mr-1"></i>${config.atividade || 'Geral'}</span>
+                                <span><i class="fas fa-tag mr-1"></i>${config.tipoEmpresa || 'Geral'}</span>
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn-editar-real text-blue-600 hover:text-blue-800 p-1"
+                                    data-id="${config.id}">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn-excluir-real text-red-600 hover:text-red-800 p-1"
+                                    data-id="${config.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div class="bg-blue-50 p-2 rounded">
+                                <div class="text-xs text-blue-600">IRPJ</div>
+                                <div class="font-bold">${config.aliquotaIRPJ}% + ${config.adicionalIRPJ}% adicional</div>
+                            </div>
+                            <div class="bg-green-50 p-2 rounded">
+                                <div class="text-xs text-green-600">CSLL</div>
+                                <div class="font-bold">${config.aliquotaCSLL}%</div>
+                            </div>
+                            <div class="bg-purple-50 p-2 rounded">
+                                <div class="text-xs text-purple-600">PIS/COFINS</div>
+                                <div class="font-bold">${config.pis}% / ${config.cofins}%</div>
+                            </div>
+                            <div class="bg-yellow-50 p-2 rounded">
+                                <div class="text-xs text-yellow-600">ISS/ICMS</div>
+                                <div class="font-bold">${config.iss}% / ${config.icms}%</div>
+                            </div>
+                        </div>
+                        
+                        ${config.isencaoIRPJ > 0 || config.isencaoCSLL > 0 ? `
+                            <div class="mt-3 text-sm text-gray-600">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                Isenções: IRPJ até ${UIUtils.formatarMoeda(config.isencaoIRPJ || 0)}, 
+                                CSLL até ${UIUtils.formatarMoeda(config.isencaoCSLL || 0)}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+        this.adicionarEventosListaReal();
+    }
+
+    /**
+     * Adicionar eventos lista Real
+     */
+    adicionarEventosListaReal() {
+        document.querySelectorAll('.btn-editar-real').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.currentTarget.getAttribute('data-id');
+                this.editarConfigReal(id);
+            });
+        });
+        
+        document.querySelectorAll('.btn-excluir-real').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = e.currentTarget.getAttribute('data-id');
+                this.confirmarExclusaoReal(id);
+            });
+        });
+    }
+
+    /**
+     * Editar configuração Real
+     */
+    editarConfigReal(configId) {
+        const config = DataStore.obterPorId('configsReal', configId);
+        if (!config) return;
+        
+        // Preencher campos
+        document.getElementById('realVigencia').value = config.vigencia;
+        document.getElementById('realNome').value = config.nome;
+        document.getElementById('realAtividade').value = config.atividade || '';
+        document.getElementById('realTipo').value = config.tipoEmpresa || 'geral';
+        document.getElementById('realAliquotaIRPJ').value = config.aliquotaIRPJ;
+        document.getElementById('realAdicionalIRPJ').value = config.adicionalIRPJ;
+        document.getElementById('realAliquotaCSLL').value = config.aliquotaCSLL;
+        document.getElementById('realPIS').value = config.pis;
+        document.getElementById('realCOFINS').value = config.cofins;
+        document.getElementById('realCSLLAdicional').value = config.csllAdicional || 0;
+        document.getElementById('realISS').value = config.iss;
+        document.getElementById('realICMS').value = config.icms;
+        document.getElementById('realIsencaoIRPJ').value = config.isencaoIRPJ || 0;
+        document.getElementById('realIsencaoCSLL').value = config.isencaoCSLL || 0;
+        document.getElementById('realLimiteAdicional').value = config.limiteAdicional || 0;
+        
+        // Configurar edição
+        this.modoEdicao = true;
+        this.itemEditandoId = configId;
+        document.getElementById('configRealId').value = configId;
+        
+        // Mostrar formulário
+        const container = document.getElementById('containerFormReal');
+        if (container) {
+            container.classList.remove('hidden');
+            container.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        // Atualizar botão
+        const submitBtn = document.querySelector('#formReal button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.textContent = 'Atualizar Configuração';
+        }
+    }
+
+    /**
+     * Confirmar exclusão Real
+     */
+    confirmarExclusaoReal(configId) {
+        const config = DataStore.obterPorId('configsReal', configId);
+        if (!config) return;
+        
+        if (confirm(`Excluir configuração "${config.nome}"?`)) {
+            const resultado = DataStore.excluirItem('configsReal', configId);
+            if (resultado.success) {
+                UIUtils.mostrarToast('✅ Configuração excluída', 'success');
+                this.carregarDadosReal();
+            } else {
+                UIUtils.mostrarToast(`❌ Erro: ${resultado.error}`, 'error');
+            }
+        }
+    }    
+}
+
+/**
+ * Fechar formulário Simples Nacional (botão X)
+ */
+function fecharFormSimples() {
+    const container = document.getElementById('containerFormFaixaSimples');
+    if (container) {
+        container.classList.add('hidden');
+    }
+    
+    // Se estiver em modo edição, cancelar a edição
+    if (window.parametrizacaoController && window.parametrizacaoController.modoEdicao) {
+        window.parametrizacaoController.cancelarFormularioSimples();
+    }
+}
+
+/**
+ * Fechar formulário Lucro Presumido (botão X)
+ */
+function fecharFormPresumido() {
+    const container = document.getElementById('containerFormPresumido');
+    if (container) {
+        container.classList.add('hidden');
+    }
+    
+    // Se estiver em modo edição, cancelar a edição
+    if (window.parametrizacaoController && window.parametrizacaoController.modoEdicao) {
+        window.parametrizacaoController.cancelarFormularioPresumido();
+    }
+}
+
+/**
+ * Fechar formulário Lucro Real (botão X)
+ */
+function fecharFormReal() {
+    const container = document.getElementById('containerFormReal');
+    if (container) {
+        container.classList.add('hidden');
+    }
+    
+    // Se estiver em modo edição, cancelar a edição
+    if (window.parametrizacaoController && window.parametrizacaoController.modoEdicao) {
+        window.parametrizacaoController.cancelarFormularioReal();
+    }
+}
+
+// Inicializar quando o DOM estiver pronto
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('parametrizacaoTab')) {
+        window.parametrizacaoController = new ParametrizacaoController();
+    }
+});

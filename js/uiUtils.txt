@@ -1,0 +1,1235 @@
+// js/uiUtils.js - VERSÃO CORRIGIDA
+/**
+ * UTILITÁRIOS DE INTERFACE - Funções auxiliares para UI
+ */
+
+const UIUtils = {	
+	/**
+	 * Formata CNPJ enquanto digita (máscara: 00.000.000/0000-00)
+	 */
+	formatarCNPJ(input) {
+		let valor = input.value.replace(/\D/g, '');
+		
+		if (valor.length > 14) {
+			valor = valor.substring(0, 14);
+		}
+		
+		if (valor.length <= 2) {
+			input.value = valor;
+		} else if (valor.length <= 5) {
+			input.value = valor.replace(/(\d{2})(\d+)/, '$1.$2');
+		} else if (valor.length <= 8) {
+			input.value = valor.replace(/(\d{2})(\d{3})(\d+)/, '$1.$2.$3');
+		} else if (valor.length <= 12) {
+			input.value = valor.replace(/(\d{2})(\d{3})(\d{3})(\d+)/, '$1.$2.$3/$4');
+		} else {
+			input.value = valor.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d+)/, '$1.$2.$3/$4-$5');
+		}
+	},
+
+	/**
+	 * Formata CPF enquanto digita (máscara: 000.000.000-00)
+	 */
+	formatarCPF(input) {
+		let valor = input.value.replace(/\D/g, '');
+		
+		if (valor.length > 11) {
+			valor = valor.substring(0, 11);
+		}
+		
+		if (valor.length <= 3) {
+			input.value = valor;
+		} else if (valor.length <= 6) {
+			input.value = valor.replace(/(\d{3})(\d+)/, '$1.$2');
+		} else if (valor.length <= 9) {
+			input.value = valor.replace(/(\d{3})(\d{3})(\d+)/, '$1.$2.$3');
+		} else {
+			input.value = valor.replace(/(\d{3})(\d{3})(\d{3})(\d+)/, '$1.$2.$3-$4');
+		}
+	},
+	
+    /**
+     * Formata um valor para moeda brasileira
+     */
+    formatarMoeda(valor) {
+        if (valor === null || valor === undefined || valor === '') {
+            return 'R$ 0,00';
+        }
+        
+        const numero = typeof valor === 'string' ? 
+            parseFloat(valor.replace(/[^\d,-]/g, '').replace(',', '.')) : 
+            Number(valor);
+            
+        if (isNaN(numero)) {
+            return 'R$ 0,00';
+        }
+        
+        return numero.toLocaleString('pt-BR', {
+            style: 'currency',
+            currency: 'BRL',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    },
+
+    /**
+     * Formata uma data para o padrão brasileiro
+     */
+    formatarData(data, incluirHora = false) {
+        if (!data) return '';
+        
+        const dataObj = new Date(data);
+        
+        if (isNaN(dataObj.getTime())) {
+            return '';
+        }
+        
+        if (incluirHora) {
+            return dataObj.toLocaleString('pt-BR');
+        }
+        
+        return dataObj.toLocaleDateString('pt-BR');
+    },
+	
+	/**
+	 * Corrige problema de fuso horário em datas
+	 * Converte "2024-12-02" para Date object sem problemas de timezone
+	 */
+	corrigirFusoHorarioData(dataString) {
+		if (!dataString) return null;
+		
+		// Se já é um Date object, converter para string primeiro
+		if (dataString instanceof Date) {
+			dataString = dataString.toISOString().split('T')[0];
+		}
+		
+		// Dividir a data
+		const partes = dataString.split('-');
+		if (partes.length !== 3) return new Date(dataString);
+		
+		const ano = parseInt(partes[0], 10);
+		const mes = parseInt(partes[1], 10) - 1; // Mês é 0-indexed no JavaScript
+		const dia = parseInt(partes[2], 10);
+		
+		// Criar data com hora local meia-noite
+		return new Date(ano, mes, dia, 0, 0, 0, 0);
+	},
+
+	/**
+	 * Formata data para exibição consistente
+	 */
+	formatarDataParaExibicao(data) {
+		if (!data) return '';
+		
+		// Se já for string formatada, retorna ela mesma
+		if (typeof data === 'string' && data.match(/\d{2}\/\d{2}\/\d{4}/)) {
+			return data;
+		}
+		
+		try {
+			const dataObj = this.corrigirFusoHorarioData(data);
+			return dataObj.toLocaleDateString('pt-BR');
+		} catch (error) {
+			console.warn('Erro ao formatar data:', error, data);
+			return String(data).substring(0, 10);
+		}
+	},
+
+    /**
+     * Cria um elemento HTML com atributos e conteúdo
+     */
+    criarElemento(tag, atributos = {}, conteudo = '') {
+        const elemento = document.createElement(tag);
+        
+        Object.keys(atributos).forEach(chave => {
+            elemento.setAttribute(chave, atributos[chave]);
+        });
+        
+        if (typeof conteudo === 'string') {
+            elemento.innerHTML = conteudo;
+        } else if (conteudo instanceof Node) {
+            elemento.appendChild(conteudo);
+        }
+        
+        return elemento;
+    },
+
+    /**
+     * Remove acentos de uma string
+     */
+    removerAcentos(texto) {
+        return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    },
+
+    /**
+     * Valida um email
+     */
+    validarEmail(email) {
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return re.test(email);
+    },
+
+    /**
+     * Formata um número de telefone
+     */
+    formatarTelefone(telefone) {
+        const numeros = telefone.replace(/\D/g, '');
+        
+        if (numeros.length === 11) {
+            return numeros.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+        } else if (numeros.length === 10) {
+            return numeros.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3');
+        } else {
+            return telefone;
+        }
+    },
+	
+	/**
+	 * Converte slug do regime tributário para nome legível
+	 */
+	getNomeRegime(regime) {
+		const regimes = {
+			'simples': 'Simples Nacional',
+			'presumido': 'Lucro Presumido',
+			'real': 'Lucro Real',
+			'mei': 'MEI',
+			'imunes': 'Imunes/Isentas',
+			'': 'Não definido'
+		};
+		return regimes[regime] || regime || 'Não definido';
+	},
+
+	/**
+	 * Retorna classes CSS para o regime tributário
+	 */
+	getClasseRegime(regime) {
+		const classes = {
+			'simples': 'bg-blue-100 text-blue-800',
+			'presumido': 'bg-yellow-100 text-yellow-800',
+			'real': 'bg-purple-100 text-purple-800',
+			'mei': 'bg-green-100 text-green-800',
+			'imunes': 'bg-gray-100 text-gray-800'
+		};
+		return classes[regime] || 'bg-gray-100 text-gray-800';
+	},
+
+    /**
+     * Cria uma tag de badge colorida
+     */
+    criarBadge(texto, tipo = 'info') {
+        const cores = {
+            success: 'bg-green-100 text-green-800',
+            error: 'bg-red-100 text-red-800',
+            warning: 'bg-yellow-100 text-yellow-800',
+            info: 'bg-blue-100 text-blue-800',
+            gray: 'bg-gray-100 text-gray-800'
+        };
+        
+        const span = document.createElement('span');
+        span.className = `px-2 py-1 text-xs font-medium rounded-full ${cores[tipo] || cores.info}`;
+        span.textContent = texto;
+        
+        return span;
+    },
+
+    /**
+     * Mostra um loader/spinner
+     */
+    mostrarLoader(containerId, texto = 'Carregando...') {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const loaderId = `loader-${containerId}`;
+        
+        // Remove loader existente
+        const loaderExistente = document.getElementById(loaderId);
+        if (loaderExistente) {
+            loaderExistente.remove();
+        }
+        
+        const loader = document.createElement('div');
+        loader.id = loaderId;
+        loader.className = 'text-center py-8';
+        loader.innerHTML = `
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mb-2"></div>
+            <p class="text-gray-600 text-sm">${texto}</p>
+        `;
+        
+        container.appendChild(loader);
+    },
+
+    /**
+     * Esconde o loader
+     */
+    esconderLoader(containerId) {
+        const loaderId = `loader-${containerId}`;
+        const loader = document.getElementById(loaderId);
+        if (loader) {
+            loader.remove();
+        }
+    },
+
+    /**
+     * Copia texto para a área de transferência
+     */
+    copiarParaAreaTransferencia(texto) {
+        navigator.clipboard.writeText(texto).then(() => {
+            this.mostrarToast('Texto copiado para a área de transferência', 'success');
+        }).catch(err => {
+            console.error('Erro ao copiar:', err);
+            this.mostrarToast('Erro ao copiar texto', 'error');
+        });
+    },
+
+    /**
+     * Mostra um toast/notificação
+     */
+    mostrarToast(mensagem, tipo = 'info', duracao = 3000) {
+		// Criar ID único para este toast
+		const toastId = 'toast-' + Date.now();
+		
+		// Remover toast anterior se existir
+		const toastAnterior = document.querySelector('.ui-toast');
+		if (toastAnterior) {
+			toastAnterior.remove();
+		}
+		
+		// Criar toast
+		const toast = document.createElement('div');
+		toast.id = toastId;
+		toast.className = `ui-toast fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg text-white transform transition-all duration-300 ${tipo === 'success' ? 'bg-green-500' :
+			tipo === 'error' ? 'bg-red-500' :
+			tipo === 'warning' ? 'bg-yellow-500' : 'bg-blue-500'}`;
+		
+		// Ícone baseado no tipo
+		const icones = {
+			success: 'fa-check-circle',
+			error: 'fa-times-circle',
+			warning: 'fa-exclamation-triangle',
+			info: 'fa-info-circle'
+		};
+		
+		toast.innerHTML = `
+			<div class="flex items-center gap-2">
+				<i class="fas ${icones[tipo] || 'fa-info-circle'} text-lg"></i>
+				<span class="flex-1">${mensagem}</span>
+			</div>
+		`;
+		
+		toast.style.zIndex = '9999';
+		toast.style.opacity = '0';
+		toast.style.transform = 'translateX(100px)';
+		
+		document.body.appendChild(toast);
+		
+		// Animar entrada
+		setTimeout(() => {
+			toast.style.opacity = '1';
+			toast.style.transform = 'translateX(0)';
+		}, 10);
+		
+		// Remover após duração
+		setTimeout(() => {
+			toast.style.opacity = '0';
+			toast.style.transform = 'translateX(100px)';
+			setTimeout(() => {
+				if (document.getElementById(toastId)) {
+					toast.remove();
+				}
+			}, 300);
+		}, duracao);
+		
+		// Permitir fechar ao clicar
+		toast.addEventListener('click', () => {
+			toast.style.opacity = '0';
+			toast.style.transform = 'translateX(100px)';
+			setTimeout(() => toast.remove(), 300);
+		});
+	},
+
+    // ============= NOVAS FUNÇÕES PARA O LAYOUT MODERNO =============
+
+    /**
+     * Alterna o estado do menu lateral
+     */
+    alternarSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.getElementById('mainContent');
+        const collapseBtn = document.getElementById('collapseSidebar');
+        
+        if (!sidebar || !mainContent) return;
+        
+        sidebar.classList.toggle('collapsed');
+        mainContent.classList.toggle('expanded');
+        
+        // Atualizar ícone do botão
+        if (collapseBtn) {
+            const icon = collapseBtn.querySelector('i');
+            if (icon) {
+                icon.className = sidebar.classList.contains('collapsed') ? 
+                    'fas fa-chevron-right' : 'fas fa-chevron-left';
+            }
+        }
+        
+        // Salvar preferência no localStorage
+        const isCollapsed = sidebar.classList.contains('collapsed');
+        localStorage.setItem('sidebarCollapsed', isCollapsed);
+    },
+
+    /**
+     * Alterna menu mobile
+     */
+    alternarMenuMobile() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('mobileOverlay');
+        
+        if (sidebar) {
+            sidebar.classList.toggle('mobile-open');
+        }
+        
+        if (overlay) {
+            overlay.classList.toggle('active');
+        }
+    },
+
+    /**
+     * Fecha menu mobile
+     */
+    fecharMenuMobile() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('mobileOverlay');
+        
+        if (sidebar) {
+            sidebar.classList.remove('mobile-open');
+        }
+        
+        if (overlay) {
+            overlay.classList.remove('active');
+        }
+    },
+
+    /**
+     * Alterna menu FAB (Floating Action Button)
+     */
+    alternarFAB() {
+        const fab = document.getElementById('fab');
+        const fabMenu = document.getElementById('fabMenu');
+        
+        if (!fab || !fabMenu) return;
+        
+        fabMenu.classList.toggle('hidden');
+        
+        // Alterar ícone
+        const icon = fab.querySelector('i');
+        if (icon) {
+            icon.className = fabMenu.classList.contains('hidden') ? 
+                'fas fa-plus text-xl' : 'fas fa-times text-xl';
+        }
+    },
+
+    /**
+     * Fecha menu FAB
+     */
+    fecharFAB() {
+        const fab = document.getElementById('fab');
+        const fabMenu = document.getElementById('fabMenu');
+        
+        if (fab && fabMenu) {
+            fabMenu.classList.add('hidden');
+            
+            // Resetar ícone
+            const icon = fab.querySelector('i');
+            if (icon) {
+                icon.className = 'fas fa-plus text-xl';
+            }
+        }
+    },
+
+    /**
+	 * Troca entre as abas principais com callback opcional
+	 */
+	switchTab(tabName, callback = null) {
+		console.log(`🔵 UIUtils.switchTab chamada para: ${tabName}`);
+		
+		// Esconder todas as abas
+        document.querySelectorAll('.tab-content').forEach(tab => {
+			console.log(`Escondendo aba: ${tab.id}`);
+            tab.classList.remove('active');
+            tab.classList.add('hidden');
+        });
+        
+        // Mostrar aba selecionada
+        const tab = document.getElementById(tabName + 'Tab');
+        if (tab) {
+			console.log(`Mostrando aba: ${tab.id}`);
+            tab.classList.remove('hidden');
+            tab.classList.add('active');
+        } else {
+			console.error(`❌ Aba não encontrada: ${tabName}Tab`);
+		}
+        
+        // Atualizar título da página
+        this.atualizarTituloPagina(tabName);
+        
+        // Atualizar menu ativo
+        this.atualizarMenuAtivo(tabName);
+        
+        // Fechar menu mobile se estiver aberto
+        this.fecharMenuMobile();
+		
+		 // Executar callback se fornecido
+		if (callback && typeof callback === 'function') {
+			console.log(`Executando callback para: ${tabName}`);
+			callback(tabName);
+		}
+    },
+
+    /**
+     * Atualiza o título da página baseado na aba ativa
+     */
+    atualizarTituloPagina(tabName) {
+        const titulos = {
+            dashboard: { 
+                main: 'Dashboard', 
+                sub: 'Visão geral do sistema' 
+            },
+            cadastro: { 
+                main: 'Cadastro', 
+                sub: 'Gerencie empresas e situações tributárias' 
+            },
+            faturamento: { 
+                main: 'Faturamento', 
+                sub: 'Registre e consulte faturamentos' 
+            },
+            calculo: { 
+                main: 'Cálculo', 
+                sub: 'Simule e calcule impostos' 
+            },
+            resumo: { 
+                main: 'Resumo', 
+                sub: 'Consolide dados fiscais' 
+            },
+            relatorios: { 
+                main: 'Relatórios', 
+                sub: 'Analise dados com relatórios' 
+            },
+            parametros: { 
+                main: 'Parâmetros', 
+                sub: 'Configure regimes tributários' 
+            }
+        };
+        
+        const titulo = document.getElementById('pageTitle');
+        const subtitulo = document.getElementById('pageSubtitle');
+        
+        if (titulo && subtitulo && titulos[tabName]) {
+            titulo.textContent = titulos[tabName].main;
+            subtitulo.textContent = titulos[tabName].sub;
+        }
+    },
+
+    /**
+     * Atualiza o item ativo no menu lateral
+     */
+    atualizarMenuAtivo(tabName) {
+        // Remover classe active de todos os itens
+        document.querySelectorAll('.menu-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Adicionar classe active ao item correspondente
+        const menuItem = document.querySelector(`.menu-item[href="#${tabName}"]`);
+        if (menuItem) {
+            menuItem.classList.add('active');
+        }
+    },
+
+    /**
+     * Alterna entre subtabs do cadastro
+     */
+    alternarSubTabCadastro(subTab) {
+        // Atualizar botões
+        document.querySelectorAll('.tab-cadastro').forEach(tab => {
+            tab.classList.remove('active', 'border-brand-600', 'text-gray-700');
+            tab.classList.add('text-gray-600');
+        });
+        
+        const botaoAtivo = document.getElementById(`tab${subTab}`);
+        if (botaoAtivo) {
+            botaoAtivo.classList.add('active', 'border-brand-600', 'text-gray-700');
+        }
+        
+        // Atualizar conteúdo
+        document.querySelectorAll('.tab-cadastro-content').forEach(content => {
+            content.classList.remove('active');
+            content.classList.add('hidden');
+        });
+        
+        const conteudoAtivo = document.getElementById(`${subTab.toLowerCase()}Content`);
+        if (conteudoAtivo) {
+            conteudoAtivo.classList.remove('hidden');
+            conteudoAtivo.classList.add('active');
+        }
+    },
+	
+	/**
+	 * Configura os eventos de clique dos itens do menu lateral
+	 */
+	configurarMenuLateral: function() {
+		console.log('⚙️ Configurando menu lateral...');
+		
+		// Remover event listeners antigos
+		document.querySelectorAll('.menu-item[href^="#"]').forEach(item => {
+			item.removeEventListener('click', this.manipularCliqueMenu);
+		});
+		
+		// Adicionar novos listeners
+		document.querySelectorAll('.menu-item[href^="#"]').forEach(item => {
+			item.addEventListener('click', this.manipularCliqueMenu.bind(this));
+		});
+		
+		console.log('✅ Menu lateral configurado');
+	},
+
+	/**
+	 * Manipula o clique em itens do menu
+	 */
+	manipularCliqueMenu: function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		
+		const item = e.currentTarget;
+		const href = item.getAttribute('href');
+		if (!href || !href.startsWith('#')) return;
+		
+		const tabId = href.substring(1);
+		console.log(`📱 Menu lateral clicado: ${tabId}`);
+		
+		// Chame a função global ou o método do objeto diretamente
+		UIUtils.switchTab(tabId);
+
+		// Fechar menu mobile
+		UIUtils.fecharMenuMobile();
+	},
+
+    /**
+     * Atualiza estatísticas do dashboard (CORRIGIDA)
+     */
+    async atualizarDashboardStats() {
+        try {
+            // Verificar se DataStore está disponível
+            if (typeof DataStore === 'undefined') {
+                console.warn('DataStore não disponível para dashboard');
+                return;
+            }
+            
+            // Carregar dados do localStorage usando a interface correta
+            const empresas = DataStore.obterTodos('empresas', []);
+            const situacoes = DataStore.obterTodos('situacoes', []);
+            const faturamentos = DataStore.obterTodos('faturamentos', []);
+            
+            // Calcular estatísticas
+            const stats = {
+                empresas: empresas.length,
+                situacoes: situacoes.length,
+                faturamento: this.calcularFaturamentoMensal(faturamentos),
+                calculos: this.contarCalculosRealizados(faturamentos)
+            };
+            
+            // Atualizar UI
+            const totalEmpresas = document.getElementById('totalEmpresas');
+            const faturamentoMensal = document.getElementById('faturamentoMensal');
+            const totalCalculos = document.getElementById('totalCalculos');
+            const situacoesAtivas = document.getElementById('situacoesAtivas');
+            
+            if (totalEmpresas) totalEmpresas.textContent = stats.empresas;
+            if (faturamentoMensal) faturamentoMensal.textContent = this.formatarMoeda(stats.faturamento);
+            if (totalCalculos) totalCalculos.textContent = stats.calculos;
+            if (situacoesAtivas) situacoesAtivas.textContent = stats.situacoes;
+            
+            // Atualizar mês atual
+            const agora = new Date();
+            const mes = agora.toLocaleDateString('pt-BR', { month: 'long' });
+            const mesAtualElement = document.getElementById('mesAtual');
+            if (mesAtualElement) {
+                mesAtualElement.textContent = mes.charAt(0).toUpperCase() + mes.slice(1);
+            }
+            
+        } catch (error) {
+            console.error('Erro ao atualizar dashboard:', error);
+        }
+    },
+
+    /**
+	 * Atualiza todos os selects de empresas no sistema
+	 * Versão centralizada para uso por todos os controllers
+	 */
+	atualizarSelects() {
+		console.log('🔄 UIUtils.atualizarSelects() - Atualizando todos os selects...');
+		
+		// Verificar se DataStore está disponível
+		if (typeof DataStore === 'undefined') {
+			console.warn('⚠️ DataStore não disponível para atualizarSelects');
+			return 0;
+		}
+		
+		try {
+			const empresas = DataStore.obterTodos('empresas', []);
+			console.log(`📊 ${empresas.length} empresas encontradas para selects`);
+			
+			// IDs de todos os selects que precisam ser atualizados
+			const selectsIds = [
+				'cnpjEmpresa',          // Situação
+				'cnpjFaturamento',      // Faturamento
+				'cnpjCalculo',          // Cálculo
+				'filtroEmpresa',        // Filtro (Dashboard, etc.)
+				'filtroEmpresaFaturamento', // Filtro Faturamento
+				'resumoEmpresa',        // Resumo
+				'empresaRelatorio',     // Relatório
+				'clienteSelect'         // Cadastro (se existir)
+			];
+			
+			let selectsAtualizados = 0;
+			
+			selectsIds.forEach(id => {
+				const select = document.getElementById(id);
+				if (select) {
+					const valorAtual = select.value;
+					
+					// Limpar e adicionar opção padrão
+					select.innerHTML = '';
+					
+					if (id.includes('filtro') || id === 'empresaRelatorio' || id === 'todasEmpresas') {
+						// Para filtros - adicionar opção "Todas"
+						const optionTodas = document.createElement('option');
+						optionTodas.value = 'todas';
+						optionTodas.textContent = 'Todas as Empresas';
+						select.appendChild(optionTodas);
+					} else {
+						// Para selects normais
+						const optionPadrao = document.createElement('option');
+						optionPadrao.value = '';
+						optionPadrao.textContent = 'Selecione uma empresa...';
+						select.appendChild(optionPadrao);
+					}
+					
+					// Adicionar empresas
+					empresas.forEach(empresa => {
+						const option = document.createElement('option');
+						option.value = empresa.cnpj || empresa.id;
+						
+						// Formatar texto da opção
+						let texto = empresa.razaoSocial || empresa.nomeFantasia || 'Sem nome';
+						if (empresa.cnpj) {
+							texto += ` - ${empresa.cnpj}`;
+						}
+						
+						option.textContent = texto;
+						select.appendChild(option);
+					});
+					
+					// Restaurar valor se existir
+					if (valorAtual) {
+						select.value = valorAtual;
+					}
+					
+					selectsAtualizados++;
+					console.log(`✅ Select ${id} atualizado com ${empresas.length} opções`);
+				}
+			});
+			
+			// Atualizar selects que não estão na lista padrão mas podem existir
+			this.atualizarSelectsEspecificos(empresas);
+			
+			console.log(`✅ ${selectsAtualizados} selects atualizados com sucesso`);
+			return empresas.length;
+			
+		} catch (error) {
+			console.error('❌ Erro ao atualizar selects:', error);
+			return 0;
+		}
+	},
+
+	/**
+	 * Atualiza selects específicos que podem não estar na lista padrão
+	 */
+	atualizarSelectsEspecificos(empresas) {
+		// Procura por todos os selects que tenham empresas
+		const todosSelects = document.querySelectorAll('select');
+		
+		todosSelects.forEach(select => {
+			// Verifica se é um select que provavelmente precisa de empresas
+			const id = select.id;
+			const name = select.name || '';
+			
+			// Pular selects que já foram atualizados
+			if (id && (id.includes('cnpj') || id.includes('empresa') || id.includes('cliente'))) {
+				// Verificar se já tem opções (exceto a padrão)
+				const temOpcoes = select.querySelectorAll('option').length > 1;
+				
+				if (!temOpcoes) {
+					// Adicionar opção padrão se não existir
+					if (!select.querySelector('option[value=""]')) {
+						const optionPadrao = document.createElement('option');
+						optionPadrao.value = '';
+						optionPadrao.textContent = 'Selecione...';
+						select.prepend(optionPadrao);
+					}
+					
+					// Adicionar empresas
+					empresas.forEach(empresa => {
+						const option = document.createElement('option');
+						option.value = empresa.cnpj || empresa.id;
+						option.textContent = empresa.razaoSocial || empresa.nomeFantasia || 'Empresa';
+						select.appendChild(option);
+					});
+					
+					console.log(`✅ Select adicional ${id || name} atualizado`);
+				}
+			}
+		});
+	},
+	
+	/**
+     * Calcula faturamento do mês atual (CORRIGIDA)
+     */
+    calcularFaturamentoMensal(faturamentos) {
+        if (!faturamentos || faturamentos.length === 0) return 0;
+        
+        const agora = new Date();
+        const mesAtual = agora.getMonth() + 1; // JavaScript: 0-11, nosso sistema: 1-12
+        const anoAtual = agora.getFullYear();
+        
+        // Filtrar faturamentos do mês atual
+        const faturamentoMes = faturamentos.filter(fat => {
+            return fat.mes === mesAtual && fat.ano === anoAtual;
+        });
+        
+        // Calcular total
+        return faturamentoMes.reduce((total, fat) => {
+            // Verificar a estrutura do faturamento
+            if (fat.valores && fat.valores.faturamentoTotal) {
+                return total + (parseFloat(fat.valores.faturamentoTotal) || 0);
+            } else if (fat.total) {
+                return total + (parseFloat(fat.total) || 0);
+            }
+            return total;
+        }, 0);
+    },
+
+    /**
+     * Conta cálculos realizados
+     */
+    contarCalculosRealizados(faturamentos) {
+        if (!faturamentos) return 0;
+        return faturamentos.filter(fat => fat.calculoRealizado === true).length;
+    },
+
+    /**
+     * Carrega atividade recente (CORRIGIDA)
+     */
+    async carregarAtividadeRecente() {
+        const container = document.getElementById('recentActivity');
+        if (!container) return;
+        
+        try {
+            // Verificar se DataStore está disponível
+            if (typeof DataStore === 'undefined') {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-400">
+                        <p>Sistema carregando...</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Carregar dados usando a interface correta
+            const empresas = DataStore.obterTodos('empresas', []);
+            const situacoes = DataStore.obterTodos('situacoes', []);
+            const faturamentos = DataStore.obterTodos('faturamentos', []);
+            
+            // Ordenar por data mais recente
+            const atividades = [];
+            
+            // Adicionar empresas recentes
+            empresas.slice(0, 5).forEach(emp => {
+                atividades.push({
+                    tipo: 'empresa',
+                    data: emp.dataCadastro || new Date().toISOString(),
+                    titulo: `Nova empresa cadastrada`,
+                    descricao: emp.razaoSocial || emp.nomeFantasia || 'Sem nome',
+                    icon: 'building',
+                    cor: 'text-blue-500',
+                    bgCor: 'bg-blue-100'
+                });
+            });
+            
+            // Adicionar situações recentes
+            situacoes.slice(0, 5).forEach(sit => {
+                const empresa = empresas.find(e => e.cnpj === sit.cnpjEmpresa || e.id === sit.empresaId);
+                atividades.push({
+                    tipo: 'situacao',
+                    data: sit.dataSituacao || new Date().toISOString(),
+                    titulo: `Nova situação tributária`,
+                    descricao: `${empresa?.nomeFantasia || empresa?.razaoSocial || 'Empresa'} - ${sit.tributacao || sit.regime}`,
+                    icon: 'file-contract',
+                    cor: 'text-green-500',
+                    bgCor: 'bg-green-100'
+                });
+            });
+            
+            // Adicionar faturamentos recentes
+            faturamentos.slice(0, 5).forEach(fat => {
+                const empresa = empresas.find(e => e.cnpj === fat.empresaCnpj || e.id === fat.empresaId);
+                const valorTotal = fat.valores?.faturamentoTotal || fat.total || 0;
+                atividades.push({
+                    tipo: 'faturamento',
+                    data: new Date(fat.ano, (fat.mes - 1), 1).toISOString(),
+                    titulo: `Faturamento registrado`,
+                    descricao: `${empresa?.nomeFantasia || empresa?.razaoSocial || 'Empresa'} - ${this.formatarMoeda(valorTotal)}`,
+                    icon: 'chart-line',
+                    cor: 'text-purple-500',
+                    bgCor: 'bg-purple-100'
+                });
+            });
+            
+            // Ordenar por data (mais recente primeiro)
+            atividades.sort((a, b) => new Date(b.data) - new Date(a.data));
+            
+            // Limitar a 5 atividades
+            const atividadesExibidas = atividades.slice(0, 5);
+            
+            // Renderizar
+            if (atividadesExibidas.length === 0) {
+                container.innerHTML = `
+                    <div class="flex items-center justify-center py-8 text-gray-400">
+                        <div class="text-center">
+                            <i class="fas fa-clock text-3xl mb-2"></i>
+                            <p>Nenhuma atividade recente</p>
+                            <p class="text-sm">As ações aparecerão aqui</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = atividadesExibidas.map(atividade => `
+                    <div class="flex items-start gap-3 p-3 hover:bg-gray-50 rounded-lg transition">
+                        <div class="w-10 h-10 rounded-lg ${atividade.bgCor} flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-${atividade.icon} ${atividade.cor}"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-medium text-gray-900 truncate">${atividade.titulo}</p>
+                            <p class="text-sm text-gray-600 truncate">${atividade.descricao}</p>
+                            <p class="text-xs text-gray-500 mt-1">${this.formatarData(atividade.data)}</p>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+        } catch (error) {
+            console.error('Erro ao carregar atividade:', error);
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-exclamation-circle mb-2"></i>
+                    <p>Erro ao carregar atividade</p>
+                </div>
+            `;
+        }
+    },
+
+    /**
+     * Carrega empresas recentes no dashboard (CORRIGIDA)
+     */
+    async carregarEmpresasRecentes() {
+        const container = document.getElementById('recentCompanies');
+        if (!container) return;
+        
+        try {
+            // Verificar se DataStore está disponível
+            if (typeof DataStore === 'undefined') {
+                container.innerHTML = `
+                    <div class="text-center py-6 text-gray-400">
+                        <p>Sistema carregando...</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const empresas = DataStore.obterTodos('empresas', []);
+            
+            // Ordenar por data mais recente
+            empresas.sort((a, b) => {
+                const dataA = new Date(a.dataCadastro || a.dataAbertura || 0);
+                const dataB = new Date(b.dataCadastro || b.dataAbertura || 0);
+                return dataB - dataA;
+            });
+            
+            // Pegar as 3 mais recentes
+            const recentes = empresas.slice(0, 3);
+            
+            if (recentes.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 text-gray-400">
+                        <i class="fas fa-building text-2xl mb-2"></i>
+                        <p>Nenhuma empresa cadastrada</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = recentes.map(empresa => `
+                <div class="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-brand-100 flex items-center justify-center">
+                            <i class="fas fa-building text-brand-600"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-900">${empresa.nomeFantasia || empresa.razaoSocial || 'Sem nome'}</p>
+                            <p class="text-xs text-gray-500">${empresa.cnpj || 'Sem CNPJ'}</p>
+                        </div>
+                    </div>
+                    <span class="text-xs text-gray-400">${this.formatarData(empresa.dataCadastro || empresa.dataAbertura)}</span>
+                </div>
+            `).join('');
+            
+        } catch (error) {
+            console.error('Erro ao carregar empresas:', error);
+        }
+    },
+
+    /**
+     * Cria card de empresa para a grade
+     */
+    criarCardEmpresa(empresa) {
+        const card = document.createElement('div');
+        card.className = 'dashboard-card bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition-all';
+        card.innerHTML = `
+            <div class="flex items-start justify-between mb-3">
+                <div class="w-12 h-12 rounded-lg bg-brand-100 flex items-center justify-center">
+                    <i class="fas fa-building text-brand-600 text-lg"></i>
+                </div>
+                <button class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-ellipsis-v"></i>
+                </button>
+            </div>
+            
+            <h4 class="font-bold text-gray-900 mb-1 truncate">${empresa.nomeFantasia || empresa.razaoSocial}</h4>
+            <p class="text-sm text-gray-500 mb-3">${empresa.cnpj || 'Sem CNPJ'}</p>
+            
+            <div class="space-y-2 mb-4">
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-600">Abertura:</span>
+                    <span class="font-medium">${this.formatarData(empresa.dataAbertura)}</span>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-600">Sócios:</span>
+                    <span class="font-medium">${empresa.socios?.length || 0}</span>
+                </div>
+            </div>
+            
+            <div class="flex gap-2 pt-3 border-t">
+                <button onclick="UIUtils.editarEmpresa('${empresa.id || empresa.cnpj}')" 
+                        class="flex-1 px-3 py-1.5 bg-brand-50 text-brand-700 rounded-lg text-sm hover:bg-brand-100 transition">
+                    <i class="fas fa-edit mr-1"></i> Editar
+                </button>
+                <button onclick="UIUtils.verSituacoes('${empresa.cnpj || empresa.id}')" 
+                        class="flex-1 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-sm hover:bg-green-100 transition">
+                    <i class="fas fa-eye mr-1"></i> Ver
+                </button>
+            </div>
+        `;
+        
+        return card;
+    },
+
+    /**
+     * Inicializa eventos do novo layout (CORRIGIDA)
+     */
+    inicializarLayout() {
+		console.log('🔄 UIUtils.inicializarLayout() chamado');
+		
+		// 1. Sidebar collapse
+		const collapseBtn = document.getElementById('collapseSidebar');
+		if (collapseBtn) {
+			collapseBtn.addEventListener('click', () => this.alternarSidebar());
+		}
+		
+		// 2. Menu mobile
+		const mobileMenuBtn = document.getElementById('mobileMenuButton');
+		if (mobileMenuBtn) {
+			mobileMenuBtn.addEventListener('click', () => this.alternarMenuMobile());
+		}
+		
+		// 3. Overlay mobile
+		const mobileOverlay = document.getElementById('mobileOverlay');
+		if (mobileOverlay) {
+			mobileOverlay.addEventListener('click', () => this.fecharMenuMobile());
+		}
+		
+		// 4. FAB
+		const fab = document.getElementById('fab');
+		if (fab) {
+			fab.addEventListener('click', () => this.alternarFAB());
+		}
+		
+		// 5. Fechar FAB ao clicar fora
+		document.addEventListener('click', (e) => {
+			const fab = document.getElementById('fab');
+			const fabMenu = document.getElementById('fabMenu');
+			
+			if (fab && fabMenu && !fab.contains(e.target) && !fabMenu.contains(e.target)) {
+				this.fecharFAB();
+			}
+		});
+		
+		// 6. Sub-tabs do cadastro
+		document.querySelectorAll('.tab-cadastro').forEach(tab => {
+			tab.addEventListener('click', (e) => {
+				const tabId = e.currentTarget.id;
+				const subTab = tabId.replace('tab', '');
+				this.alternarSubTabCadastro(subTab);
+			});
+		});
+		
+		// ✅ 7. CONFIGURAR MENU LATERAL (ADICIONAR ESTA LINHA)
+		this.configurarMenuLateral();
+		
+		// 8. Restaurar estado da sidebar
+		const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+		if (sidebarCollapsed) {
+			setTimeout(() => this.alternarSidebar(), 100);
+		}
+		
+		// 9. Inicializar dashboard
+		setTimeout(() => {
+			if (typeof DataStore !== 'undefined') {
+				this.atualizarDashboardStats();
+				this.carregarAtividadeRecente();
+				this.carregarEmpresasRecentes();
+			} else {
+				console.warn('DataStore não disponível para inicializar dashboard');
+				setTimeout(() => {
+					if (typeof DataStore !== 'undefined') {
+						this.atualizarDashboardStats();
+						this.carregarAtividadeRecente();
+						this.carregarEmpresasRecentes();
+					}
+				}, 1000);
+			}
+		}, 500);
+	},
+
+    /**
+     * Abre modal de cadastro de empresa
+     */
+    abrirCadastroEmpresa() {
+        if (typeof switchTab === 'function') {
+            switchTab('cadastro');
+        } else {
+            this.switchTab('cadastro');
+        }
+        this.alternarSubTabCadastro('Empresas');
+    },
+
+    /**
+     * Abre modal de nova situação
+     */
+    abrirNovaSituacao() {
+        if (typeof switchTab === 'function') {
+            switchTab('cadastro');
+        } else {
+            this.switchTab('cadastro');
+        }
+        this.alternarSubTabCadastro('Situacoes');
+    },
+
+    /**
+     * Abre faturamento
+     */
+    abrirFaturamento() {
+        if (typeof switchTab === 'function') {
+            switchTab('faturamento');
+        } else {
+            this.switchTab('faturamento');
+        }
+    },
+
+    /**
+     * Abre cálculo
+     */
+    abrirCalculo() {
+        if (typeof switchTab === 'function') {
+            switchTab('calculo');
+        } else {
+            this.switchTab('calculo');
+        }
+    },
+
+    /**
+     * Função placeholder para editar empresa
+     */
+    editarEmpresa(id) {
+        this.mostrarToast('Funcionalidade de edição em desenvolvimento', 'info');
+        // Implementar edição de empresa
+    },
+
+    /**
+     * Função placeholder para ver situações
+     */
+    verSituacoes(cnpj) {
+        if (typeof switchTab === 'function') {
+            switchTab('cadastro');
+        } else {
+            this.switchTab('cadastro');
+        }
+        this.alternarSubTabCadastro('Situacoes');
+        this.mostrarToast(`Mostrando situações para CNPJ ${cnpj}`, 'info');
+        // Implementar filtro por CNPJ
+    }
+};
+
+// Exportar para uso global
+if (typeof window !== 'undefined') {
+    window.UIUtils = UIUtils;
+    
+    // Criar funções globais para compatibilidade
+    window.mostrarMensagem = function(texto, tipo = 'info') {
+        UIUtils.mostrarToast(texto, tipo);
+    };
+    
+    window.switchTab = function(tabId) {
+        console.log('🚀 switchTab chamado para:', tabId);
+        UIUtils.switchTab(tabId, (tabName) => {
+            // Executar inicializações específicas da aba
+            if (typeof executarInicializacoesAba === 'function') {
+                executarInicializacoesAba(tabName);
+            }
+        });
+    };
+    
+    // Wrapper para atualizarSelects
+    window.atualizarSelects = function() {
+        return UIUtils.atualizarSelects();
+    };
+    
+    // Wrapper para atualizarDashboardStats
+    window.atualizarDashboardStats = function() {
+        return UIUtils.atualizarDashboardStats();
+    };
+	
+	// Wrappers para getNomeRegime e getClasseRegime
+	window.getNomeRegime = function(regime) {
+        return UIUtils.getNomeRegime(regime);
+    };
+    
+    window.getClasseRegime = function(regime) {
+        return UIUtils.getClasseRegime(regime);
+    };
+	
+	window.formatarMoeda = function(valor) {
+    return UIUtils.formatarMoeda(valor);
+	};
+
+	window.criarBadge = function(texto, tipo = 'info') {
+		return UIUtils.criarBadge(texto, tipo);
+	};
+}
