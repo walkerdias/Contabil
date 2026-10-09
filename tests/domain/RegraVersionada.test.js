@@ -1,29 +1,47 @@
+
+// tests/domain/RegraVersionada.test.js
+
 import { describe, expect, it } from 'vitest';
-import RegraVersionada from './RegraVersionada.js';
+import Competencia from '../../js/domain/Competencia.js';
+import RegraVersionada from '../../js/domain/RegraVersionada.js';
+import Vigencia from '../../js/domain/Vigencia.js';
 
-function criarVigencia(inicio, fim = null) {
+/**
+ * As vigências seguem o contrato real de Vigencia.js:
+ * - Vigencia.entre(inicio, fim)
+ * - Vigencia.de(inicio)
+ * - datas no formato YYYY-MM-DD
+ * - limites inclusivos
+ *
+ * As consultas da regra utilizam Competencia (ano e mês).
+ */
+
+function competencia(ano, mes) {
+  return new Competencia(ano, mes);
+}
+
+function criarVersao(
+  id,
+  inicio,
+  fim,
+  resultado = id,
+) {
+  const vigencia = fim
+    ? Vigencia.entre(inicio, fim)
+    : Vigencia.de(inicio);
+
   return {
-    inicio: new Date(inicio),
-    fim: fim ? new Date(fim) : null,
-
-    estaVigenteEm(data) {
-      const inicioData = this.inicio;
-      const fimData = this.fim;
-
-      return (
-        data >= inicioData &&
-        (!fimData || data <= fimData)
-      );
-    },
+    id,
+    vigencia,
+    regra: () => resultado,
   };
 }
 
-function criarVersao(id, inicio, fim = null, resultado = id) {
-  return {
-    id,
-    vigencia: criarVigencia(inicio, fim),
-    regra: () => resultado,
-  };
+function criarRegra() {
+  return new RegraVersionada({
+    codigo: 'REGRA-001',
+    nome: 'Regra de teste',
+  });
 }
 
 describe('RegraVersionada', () => {
@@ -45,7 +63,7 @@ describe('RegraVersionada', () => {
           new RegraVersionada({
             nome: 'Regra sem código',
           }),
-      ).toThrow('codigo é obrigatório');
+      ).toThrow(/codigo é obrigatório/);
     });
 
     it('deve rejeitar código que não seja string', () => {
@@ -55,7 +73,7 @@ describe('RegraVersionada', () => {
             codigo: 123,
             nome: 'Regra inválida',
           }),
-      ).toThrow('codigo é obrigatório');
+      ).toThrow(/codigo é obrigatório/);
     });
 
     it('deve rejeitar nome ausente', () => {
@@ -64,7 +82,7 @@ describe('RegraVersionada', () => {
           new RegraVersionada({
             codigo: 'REGRA-001',
           }),
-      ).toThrow('nome é obrigatório');
+      ).toThrow(/nome é obrigatório/);
     });
 
     it('deve rejeitar versões que não sejam um array', () => {
@@ -75,17 +93,13 @@ describe('RegraVersionada', () => {
             nome: 'Regra',
             versoes: {},
           }),
-      ).toThrow('versoes deve ser um array');
+      ).toThrow(/versoes deve ser um array/);
     });
   });
 
-  describe('versões', () => {
+  describe('adicionar versões', () => {
     it('deve adicionar uma versão válida', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
-
+      const regra = criarRegra();
       const versao = criarVersao(
         'v1',
         '2026-01-01',
@@ -99,91 +113,65 @@ describe('RegraVersionada', () => {
       expect(regra.versoes[0].id).toBe('v1');
     });
 
-    it('deve rejeitar versão sem id', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve rejeitar versão sem identificador', () => {
+      const regra = criarRegra();
 
       expect(() =>
         regra.adicionarVersao({
-          vigencia: criarVigencia('2026-01-01'),
+          vigencia: Vigencia.de('2026-01-01'),
           regra: () => 100,
         }),
-      ).toThrow('deve possuir id');
+      ).toThrow(/deve possuir id/);
     });
 
     it('deve rejeitar versão sem vigência', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+      const regra = criarRegra();
 
       expect(() =>
         regra.adicionarVersao({
           id: 'v1',
           regra: () => 100,
         }),
-      ).toThrow('deve possuir vigência');
+      ).toThrow(/deve possuir vigência/);
     });
 
     it('deve rejeitar versão sem função de regra', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+      const regra = criarRegra();
 
       expect(() =>
         regra.adicionarVersao({
           id: 'v1',
-          vigencia: criarVigencia('2026-01-01'),
+          vigencia: Vigencia.de('2026-01-01'),
         }),
-      ).toThrow('deve possuir uma função de regra');
+      ).toThrow(/função de regra/);
     });
 
-    it('deve rejeitar versões com o mesmo id', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve rejeitar duas versões com o mesmo identificador', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
-        criarVersao('v1', '2026-01-01', '2026-06-30'),
+        criarVersao(
+          'v1',
+          '2026-01-01',
+          '2026-06-30',
+        ),
       );
 
       expect(() =>
         regra.adicionarVersao(
-          criarVersao('v1', '2026-07-01', '2026-12-31'),
+          criarVersao(
+            'v1',
+            '2026-07-01',
+            '2026-12-31',
+          ),
         ),
-      ).toThrow('já existe');
+      ).toThrow(/já existe/);
     });
   });
 
-  describe('vigência', () => {
-    it('deve reconhecer uma versão vigente dentro do período', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
-
-      const versao = criarVersao(
-        'v1',
-        '2026-01-01',
-        '2026-12-31',
-      );
-
-      regra.adicionarVersao(versao);
-
-      expect(
-        regra.possuiVersaoVigente('2026-06-15'),
-      ).toBe(true);
-    });
-
-    it('deve considerar o início da vigência como inclusivo', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+  describe('consulta por competência', () => {
+    it('deve aceitar uma instância de Competencia', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
@@ -194,53 +182,84 @@ describe('RegraVersionada', () => {
       );
 
       expect(
-        regra.possuiVersaoVigente('2026-01-01'),
+        regra.possuiVersaoVigente(
+          competencia(2026, 6),
+        ),
       ).toBe(true);
     });
 
-    it('deve considerar o fim da vigência como inclusivo', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve retornar a versão vigente para a competência consultada', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
           'v1',
           '2026-01-01',
+          '2026-06-30',
+          'resultado-v1',
+        ),
+      );
+
+      regra.adicionarVersao(
+        criarVersao(
+          'v2',
+          '2026-07-01',
           '2026-12-31',
+          'resultado-v2',
         ),
       );
 
       expect(
-        regra.possuiVersaoVigente('2026-12-31'),
-      ).toBe(true);
+        regra.obterVersaoVigente(
+          competencia(2026, 3),
+        )?.id,
+      ).toBe('v1');
+
+      expect(
+        regra.obterVersaoVigente(
+          competencia(2026, 9),
+        )?.id,
+      ).toBe('v2');
     });
 
-    it('deve retornar falso antes do início da vigência', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve retornar null quando nenhuma versão estiver vigente', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
           'v1',
           '2026-01-01',
-          '2026-12-31',
+          '2026-06-30',
         ),
       );
 
       expect(
-        regra.possuiVersaoVigente('2025-12-31'),
+        regra.obterVersaoVigente(
+          competencia(2026, 7),
+        ),
+      ).toBeNull();
+    });
+
+    it('deve retornar falso quando não houver versão vigente', () => {
+      const regra = criarRegra();
+
+      regra.adicionarVersao(
+        criarVersao(
+          'v1',
+          '2026-01-01',
+          '2026-06-30',
+        ),
+      );
+
+      expect(
+        regra.possuiVersaoVigente(
+          competencia(2026, 7),
+        ),
       ).toBe(false);
     });
 
-    it('deve retornar falso depois do fim da vigência', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve rejeitar consulta que não seja uma Competencia', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
@@ -249,48 +268,56 @@ describe('RegraVersionada', () => {
           '2026-12-31',
         ),
       );
-
-      expect(
-        regra.possuiVersaoVigente('2027-01-01'),
-      ).toBe(false);
-    });
-
-    it('deve aceitar vigência sem data final', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
-
-      regra.adicionarVersao(
-        criarVersao(
-          'v1',
-          '2026-01-01',
-        ),
-      );
-
-      expect(
-        regra.possuiVersaoVigente('2099-12-31'),
-      ).toBe(true);
-    });
-
-    it('deve rejeitar uma data inválida', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
 
       expect(() =>
-        regra.possuiVersaoVigente('data-invalida'),
-      ).toThrow('data inválida');
+        regra.obterVersaoVigente('2026-06-15'),
+      ).toThrow();
+
+      expect(() =>
+        regra.possuiVersaoVigente(
+          new Date('2026-06-15T00:00:00.000Z'),
+        ),
+      ).toThrow();
     });
   });
 
-  describe('versões sobrepostas', () => {
-    it('deve rejeitar duas versões com vigências sobrepostas', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+  describe('virada de ano', () => {
+    it('deve selecionar corretamente a versão em dezembro e janeiro', () => {
+      const regra = criarRegra();
+
+      regra.adicionarVersao(
+        criarVersao(
+          'v2026',
+          '2026-01-01',
+          '2026-12-31',
+        ),
+      );
+
+      regra.adicionarVersao(
+        criarVersao(
+          'v2027',
+          '2027-01-01',
+          '2027-12-31',
+        ),
+      );
+
+      expect(
+        regra.obterVersaoVigente(
+          competencia(2026, 12),
+        )?.id,
+      ).toBe('v2026');
+
+      expect(
+        regra.obterVersaoVigente(
+          competencia(2027, 1),
+        )?.id,
+      ).toBe('v2027');
+    });
+  });
+
+  describe('vigências sobrepostas', () => {
+    it('deve rejeitar duas versões com períodos sobrepostos', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
@@ -308,14 +335,11 @@ describe('RegraVersionada', () => {
             '2026-12-31',
           ),
         ),
-      ).toThrow('vigência sobrepõe');
+      ).toThrow(/vigência sobrepõe/);
     });
 
-    it('deve rejeitar sobreposição exatamente no limite final/inicial', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve rejeitar sobreposição no dia final/inicial', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
@@ -333,14 +357,11 @@ describe('RegraVersionada', () => {
             '2026-12-31',
           ),
         ),
-      ).toThrow('vigência sobrepõe');
+      ).toThrow(/vigência sobrepõe/);
     });
 
-    it('deve permitir versões consecutivas sem sobreposição', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve permitir períodos consecutivos sem sobreposição', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
@@ -361,16 +382,14 @@ describe('RegraVersionada', () => {
       expect(regra.versoes).toHaveLength(2);
     });
 
-    it('deve rejeitar nova versão quando a versão anterior não possui fim', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+    it('deve rejeitar nova versão após uma vigência aberta', () => {
+      const regra = criarRegra();
 
       regra.adicionarVersao(
         criarVersao(
           'v1',
           '2026-01-01',
+          null,
         ),
       );
 
@@ -382,139 +401,59 @@ describe('RegraVersionada', () => {
             '2027-12-31',
           ),
         ),
-      ).toThrow('vigência sobrepõe');
+      ).toThrow(/vigência sobrepõe/);
     });
   });
 
-  describe('seleção da versão correta', () => {
-    it('deve retornar a versão vigente na data consultada', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
+  describe('listagem', () => {
+    it('deve listar as versões pela data inicial da vigência', () => {
+      const regra = criarRegra();
 
-      const v1 = criarVersao(
-        'v1',
-        '2026-01-01',
-        '2026-06-30',
+      regra.adicionarVersao(
+        criarVersao(
+          'v2',
+          '2026-04-01',
+          '2026-06-30',
+        ),
       );
-
-      const v2 = criarVersao(
-        'v2',
-        '2026-07-01',
-        '2026-12-31',
-      );
-
-      regra.adicionarVersao(v1);
-      regra.adicionarVersao(v2);
-
-      expect(
-        regra.obterVersaoVigente('2026-03-15'),
-      ).toBe(v1);
-
-      expect(
-        regra.obterVersaoVigente('2026-09-15'),
-      ).toBe(v2);
-    });
-
-    it('deve retornar null quando nenhuma versão estiver vigente', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
 
       regra.adicionarVersao(
         criarVersao(
           'v1',
           '2026-01-01',
+          '2026-03-31',
+        ),
+      );
+
+      expect(
+        regra.listarVersoes().map((versao) => versao.id),
+      ).toEqual(['v1', 'v2']);
+    });
+
+    it('não deve alterar a ordem interna ao listar versões', () => {
+      const regra = criarRegra();
+
+      regra.adicionarVersao(
+        criarVersao(
+          'v2',
+          '2026-04-01',
           '2026-06-30',
         ),
       );
 
-      expect(
-        regra.obterVersaoVigente('2027-01-01'),
-      ).toBeNull();
-    });
-
-    it('deve aceitar Date como data de consulta', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
-
-      const versao = criarVersao(
-        'v1',
-        '2026-01-01',
-        '2026-12-31',
-      );
-
-      regra.adicionarVersao(versao);
-
-      expect(
-        regra.obterVersaoVigente(
-          new Date('2026-05-10'),
+      regra.adicionarVersao(
+        criarVersao(
+          'v1',
+          '2026-01-01',
+          '2026-03-31',
         ),
-      ).toBe(versao);
-    });
-  });
-
-  describe('listagem', () => {
-    it('deve listar as versões ordenadas pelo início da vigência', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
-
-      const v1 = criarVersao(
-        'v1',
-        '2026-01-01',
-        '2026-03-31',
       );
-
-      const v2 = criarVersao(
-        'v2',
-        '2026-04-01',
-        '2026-06-30',
-      );
-
-      regra.adicionarVersao(v2);
-      regra.adicionarVersao(v1);
-
-      const versoes = regra.listarVersoes();
-
-      expect(versoes.map((versao) => versao.id)).toEqual([
-        'v1',
-        'v2',
-      ]);
-    });
-
-    it('não deve alterar a ordem interna ao listar versões', () => {
-      const regra = new RegraVersionada({
-        codigo: 'REGRA-001',
-        nome: 'Regra de teste',
-      });
-
-      const v1 = criarVersao(
-        'v1',
-        '2026-01-01',
-        '2026-03-31',
-      );
-
-      const v2 = criarVersao(
-        'v2',
-        '2026-04-01',
-        '2026-06-30',
-      );
-
-      regra.adicionarVersao(v2);
-      regra.adicionarVersao(v1);
 
       regra.listarVersoes();
 
-      expect(regra.versoes.map((versao) => versao.id)).toEqual([
-        'v2',
-        'v1',
-      ]);
+      expect(
+        regra.versoes.map((versao) => versao.id),
+      ).toEqual(['v2', 'v1']);
     });
   });
 });
