@@ -1,9 +1,6 @@
-"use strict";
-
-const test = require("node:test");
-const assert = require("node:assert/strict");
-
-const RegraResolver = require("./RegraResolver");
+import test from "node:test";
+import assert from "node:assert/strict";
+import RegraResolver from "../../js/domain/RegraResolver.js";
 
 /**
  * Cria uma competência simples para os testes.
