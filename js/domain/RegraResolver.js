@@ -1,22 +1,8 @@
+import Competencia from "./Competencia.js";
+
 /**
- * Resolve a versão correta de uma regra para uma determinada competência.
- *
- * Responsabilidades:
- * - localizar a regra aplicável;
- * - respeitar a vigência da regra;
- * - impedir ambiguidades causadas por versões sobrepostas;
- * - fornecer uma API simples para o domínio;
- * - não conhecer detalhes de persistência, banco ou interface.
- *
- * Espera-se que uma RegraVersionada exponha:
- *
- *   regra.estaVigenteEm(competencia)
- *
- * ou, alternativamente:
- *
- *   regra.vigencia.contem(competencia)
- *
- * A coleção recebida pode conter regras de diferentes códigos.
+ * Resolve a versão correta de uma regra para uma competência mensal.
+ * Regras podem implementar estaVigenteEm(competencia) ou expor uma vigência.
  */
 class RegraResolver {
   /**
@@ -154,18 +140,48 @@ class RegraResolver {
       return regra.estaVigenteEm(competencia);
     }
 
+    const competenciaNormalizada = Competencia.from(competencia);
+
+    if (
+      regra.vigencia &&
+      typeof regra.vigencia.contemCompetencia === "function"
+    ) {
+      return regra.vigencia.contemCompetencia(competenciaNormalizada);
+    }
+
     if (
       regra.vigencia &&
       typeof regra.vigencia.contem === "function"
     ) {
-      return regra.vigencia.contem(competencia);
+      // contem() recebe uma data, não uma Competencia. Para manter a
+      // semântica mensal, verifica a interseção dos intervalos.
+      const inicioMes = new Date(Date.UTC(
+        competenciaNormalizada.ano,
+        competenciaNormalizada.mes - 1,
+        1
+      ));
+      const fimMes = new Date(Date.UTC(
+        competenciaNormalizada.ano,
+        competenciaNormalizada.mes,
+        0
+      ));
+      const inicioVigencia = regra.vigencia.inicio;
+      const fimVigencia = regra.vigencia.fim ?? null;
+
+      if (!(inicioVigencia instanceof Date)) {
+        throw new TypeError(
+          "A vigência deve implementar contemCompetencia(competencia) ou expor inicio/fim como Date."
+        );
+      }
+
+      return inicioVigencia <= fimMes &&
+        (fimVigencia === null || fimVigencia >= inicioMes);
     }
 
     throw new TypeError(
-      "A regra deve implementar estaVigenteEm(competencia) ou possuir vigencia.contem(competencia)."
+      "A regra deve implementar estaVigenteEm(competencia) ou possuir vigencia.contemCompetencia(competencia)."
     );
   }
-
   /**
    * Obtém o código da regra.
    *
@@ -234,4 +250,4 @@ class RegraResolver {
   }
 }
 
-module.exports = RegraResolver;
+export default RegraResolver;
