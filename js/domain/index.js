@@ -1,15 +1,6 @@
-const Decimal = require('./Decimal');
-const Empresa = require('./Empresa');
-const Competencia = require('./Competencia');
-const Vigencia = require('./Vigencia');
-const RegraVersionada = require('./RegraVersionada');
-const RegraResolver = require('./RegraResolver');
-
-module.exports = {
-  Decimal,
-  Empresa,
-  Competencia,
-  Vigencia,
-  RegraVersionada,
-  RegraResolver,
-};
+export { default as Decimal } from './Decimal.js';
+export { default as Empresa } from './Empresa.js';
+export { default as Competencia } from './Competencia.js';
+export { default as Vigencia } from './Vigencia.js';
+export { default as RegraVersionada } from './RegraVersionada.js';
+export { default as RegraResolver } from './RegraResolver.js';
