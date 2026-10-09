@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import Vigencia from "./Vigencia.js";
+import Competencia from "../../js/domain/Competencia.js";
+import Vigencia from "../../js/domain/Vigencia.js";
 
 describe("Vigencia", () => {
   describe("criação", () => {
@@ -176,6 +177,68 @@ describe("Vigencia", () => {
       const aberta = Vigencia.de("2026-01-01");
 
       expect(aberta.contem("2025-12-31")).toBe(false);
+    });
+  });
+
+
+  describe("contemCompetencia", () => {
+    test("retorna false quando a competência termina antes do início da vigência", () => {
+      const vigencia = Vigencia.de("2026-03-15");
+
+      expect(vigencia.contemCompetencia(new Competencia(2026, 2))).toBe(false);
+      expect(vigencia.contemCompetencia("2026-02")).toBe(false);
+    });
+
+    test("considera vigente o mês em que a vigência começa no meio do mês", () => {
+      const vigencia = Vigencia.de("2026-03-15");
+
+      expect(vigencia.contemCompetencia(new Competencia(2026, 3))).toBe(true);
+    });
+
+    test("considera vigente o mês em que a vigência termina no meio do mês", () => {
+      const vigencia = Vigencia.entre("2026-01-01", "2026-03-15");
+
+      expect(vigencia.contemCompetencia(new Competencia(2026, 3))).toBe(true);
+    });
+
+    test("considera vigente uma competência inteiramente coberta", () => {
+      const vigencia = Vigencia.entre("2026-02-01", "2026-04-30");
+
+      expect(vigencia.contemCompetencia(new Competencia(2026, 3))).toBe(true);
+    });
+
+    test("não considera vigente mês iniciado após o fim da vigência", () => {
+      const vigencia = Vigencia.entre("2026-01-01", "2026-03-31");
+
+      expect(vigencia.contemCompetencia(new Competencia(2026, 4))).toBe(false);
+    });
+
+    test("trata corretamente a virada de ano", () => {
+      const vigencia = Vigencia.entre("2026-12-15", "2027-01-10");
+
+      expect(vigencia.contemCompetencia(new Competencia(2026, 12))).toBe(true);
+      expect(vigencia.contemCompetencia(new Competencia(2027, 1))).toBe(true);
+      expect(vigencia.contemCompetencia(new Competencia(2027, 2))).toBe(false);
+    });
+
+    test("vigência aberta inclui a competência do início e competências futuras", () => {
+      const vigencia = Vigencia.de("2026-01-15");
+
+      expect(vigencia.contemCompetencia(new Competencia(2026, 1))).toBe(true);
+      expect(vigencia.contemCompetencia(new Competencia(2026, 2))).toBe(true);
+      expect(vigencia.contemCompetencia(new Competencia(2030, 12))).toBe(true);
+    });
+
+    test("vigência aberta exclui competências inteiramente anteriores ao início", () => {
+      const vigencia = Vigencia.de("2026-01-15");
+
+      expect(vigencia.contemCompetencia(new Competencia(2025, 12))).toBe(false);
+    });
+
+    test("rejeita competência em formato inválido", () => {
+      const vigencia = Vigencia.de("2026-01-01");
+
+      expect(() => vigencia.contemCompetencia("2026-13")).toThrow(RangeError);
     });
   });
 
