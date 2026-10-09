@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import Decimal from './Decimal.js';
+import Decimal from '../../js/domain/Decimal.js';
 
 describe('Decimal', () => {
     describe('construção', () => {
