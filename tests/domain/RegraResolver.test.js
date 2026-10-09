@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import RegraResolver from "../../js/domain/RegraResolver.js";
+import Vigencia from "../../js/domain/Vigencia.js";
 
 /**
  * Cria uma competência simples para os testes.
@@ -291,4 +292,45 @@ test("rejeita coleção de regras que não seja um array", () => {
     () => new RegraResolver({}),
     /regras deve ser um array/
   );
+});
+
+test("estaVigente considera competências parcialmente cobertas pela vigência", () => {
+  const resolver = new RegraResolver([]);
+  const regra = {
+    codigo: "REGRA_MENSAL",
+    vigencia: Vigencia.de("2026-06-15"),
+  };
+
+  assert.equal(resolver.estaVigente(regra, "2026-05"), false);
+  assert.equal(resolver.estaVigente(regra, "2026-06"), true);
+  assert.equal(resolver.estaVigente(regra, "2026-07"), true);
+});
+
+test("estaVigente considera o mês final parcialmente coberto", () => {
+  const resolver = new RegraResolver([]);
+  const regra = {
+    codigo: "REGRA_MENSAL",
+    vigencia: Vigencia.entre("2026-01-01", "2026-06-15"),
+  };
+
+  assert.equal(resolver.estaVigente(regra, "2026-06"), true);
+  assert.equal(resolver.estaVigente(regra, "2026-07"), false);
+});
+
+test("estaVigente usa contemCompetencia quando disponível", () => {
+  const resolver = new RegraResolver([]);
+  let recebido;
+
+  const regra = {
+    codigo: "REGRA_MENSAL",
+    vigencia: {
+      contemCompetencia(competencia) {
+        recebido = competencia.toString();
+        return recebido === "2026-06";
+      },
+    },
+  };
+
+  assert.equal(resolver.estaVigente(regra, "2026-06"), true);
+  assert.equal(recebido, "2026-06");
 });
