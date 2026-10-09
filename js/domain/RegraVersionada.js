@@ -1,9 +1,13 @@
 /**
- * Representa uma regra de negócio versionada no domínio.
+ * Representa uma regra de negócio com versões associadas a vigências.
  *
- * Uma regra pode possuir várias versões, cada uma associada
- * a uma vigência específica.
+ * Contrato temporal:
+ * - A consulta recebe uma instância de Competencia.
+ * - Vigencia.contem() recebe uma competência no formato YYYY-MM.
+ * - O domínio não converte competências por meio de Date.
  */
+import Competencia from './Competencia.js';
+
 class RegraVersionada {
   /**
    * @param {Object} params
@@ -11,31 +15,32 @@ class RegraVersionada {
    * @param {string} params.nome
    * @param {Array<Object>} [params.versoes=[]]
    */
-  constructor({ codigo, nome, versoes = [] }) {
-    if (!codigo || typeof codigo !== 'string') {
+  constructor({ codigo, nome, versoes = [] } = {}) {
+    if (typeof codigo !== 'string' || codigo.trim() === '') {
       throw new Error('RegraVersionada: codigo é obrigatório.');
     }
 
-    if (!nome || typeof nome !== 'string') {
+    if (typeof nome !== 'string' || nome.trim() === '') {
       throw new Error('RegraVersionada: nome é obrigatório.');
     }
 
     if (!Array.isArray(versoes)) {
-      throw new Error('RegraVersionada: versoes deve ser um array.');
+      throw new Error(
+        'RegraVersionada: versoes deve ser um array.',
+      );
     }
 
-    this.codigo = codigo;
-    this.nome = nome;
-    this.versoes = versoes.map((versao) => ({ ...versao }));
+    this.codigo = codigo.trim();
+    this.nome = nome.trim();
+    this.versoes = [];
+
+    for (const versao of versoes) {
+      this.adicionarVersao(versao);
+    }
   }
 
   /**
-   * Adiciona uma nova versão da regra.
-   *
-   * A versão deve possuir:
-   * - identificador
-   * - vigência
-   * - implementação da regra
+   * Adiciona uma versão à regra.
    *
    * @param {Object} versao
    * @returns {RegraVersionada}
@@ -45,14 +50,16 @@ class RegraVersionada {
 
     if (this.versoes.some((item) => item.id === versao.id)) {
       throw new Error(
-        `RegraVersionada: a versão "${versao.id}" já existe.`
+        `RegraVersionada: a versão "${versao.id}" já existe.`,
       );
     }
 
-    if (this.versoes.some((item) => this.#vigenciasSobrepostas(item, versao))) {
-      throw new Error(
-        `RegraVersionada: a vigência sobrepõe uma versão existente.`
-      );
+    for (const existente of this.versoes) {
+      if (this.#vigenciasSobrepostas(existente.vigencia, versao.vigencia)) {
+        throw new Error(
+          'RegraVersionada: uma vigência sobrepõe uma versão existente.',
+        );
+      }
     }
 
     this.versoes.push({ ...versao });
@@ -61,25 +68,23 @@ class RegraVersionada {
   }
 
   /**
-   * Retorna a versão vigente na data informada.
+   * Obtém a versão vigente para uma competência.
    *
-   * @param {Date|string} data
+   * @param {Competencia} competencia
    * @returns {Object|null}
    */
-  obterVersaoVigente(data) {
-    const dataConsulta = data instanceof Date ? data : new Date(data);
+  obterVersaoVigente(competencia) {
+    this.#validarCompetencia(competencia);
 
-    if (Number.isNaN(dataConsulta.getTime())) {
-      throw new Error('RegraVersionada: data inválida.');
-    }
+    const competenciaTexto = competencia.toString();
 
     const vigentes = this.versoes.filter((versao) =>
-      this.#vigenciaContem(versao.vigencia, dataConsulta)
+      versao.vigencia.contem(competenciaTexto),
     );
 
     if (vigentes.length > 1) {
       throw new Error(
-        `RegraVersionada: existem múltiplas versões vigentes em ${dataConsulta.toISOString()}.`
+        `RegraVersionada: múltiplas versões vigentes para ${competenciaTexto}.`,
       );
     }
 
@@ -87,144 +92,152 @@ class RegraVersionada {
   }
 
   /**
-   * Verifica se existe uma versão vigente na data informada.
+   * Informa se há uma versão vigente para a competência.
    *
-   * @param {Date|string} data
+   * @param {Competencia} competencia
    * @returns {boolean}
    */
-  possuiVersaoVigente(data) {
-    return this.obterVersaoVigente(data) !== null;
+  possuiVersaoVigente(competencia) {
+    return this.obterVersaoVigente(competencia) !== null;
   }
 
   /**
-   * Retorna todas as versões ordenadas pelo início da vigência.
+   * Lista versões ordenadas pelo início da vigência.
+   *
+   * O método espera que Vigencia exponha inicio como Competencia
+   * ou como string YYYY-MM.
    *
    * @returns {Array<Object>}
    */
   listarVersoes() {
-    return [...this.versoes].sort((a, b) => {
-      return this.#inicioVigencia(a.vigencia) - this.#inicioVigencia(b.vigencia);
-    });
+    return [...this.versoes].sort((a, b) =>
+      this.#compararInicio(a.vigencia, b.vigencia),
+    );
   }
 
-  /**
-   * @private
-   */
+  #validarCompetencia(competencia) {
+    if (!(competencia instanceof Competencia)) {
+      throw new TypeError(
+        'RegraVersionada: competencia deve ser uma instância de Competencia.',
+      );
+    }
+
+    if (typeof competencia.toString !== 'function') {
+      throw new TypeError(
+        'RegraVersionada: competência inválida.',
+      );
+    }
+
+    const texto = competencia.toString();
+
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(texto)) {
+      throw new Error(
+        'RegraVersionada: competência deve estar no formato YYYY-MM.',
+      );
+    }
+  }
+
   #validarVersao(versao) {
-    if (!versao || typeof versao !== 'object') {
+    if (!versao || typeof versao !== 'object' || Array.isArray(versao)) {
       throw new Error('RegraVersionada: versão inválida.');
     }
 
     if (
       versao.id === undefined ||
       versao.id === null ||
-      versao.id === ''
+      String(versao.id).trim() === ''
     ) {
       throw new Error('RegraVersionada: versão deve possuir id.');
     }
 
-    if (!versao.vigencia) {
+    if (
+      !versao.vigencia ||
+      typeof versao.vigencia.contem !== 'function'
+    ) {
       throw new Error(
-        `RegraVersionada: a versão "${versao.id}" deve possuir vigência.`
+        `RegraVersionada: a versão "${versao.id}" deve possuir uma vigência com o método contem().`,
       );
+    }
+
+    const possuiRegra =
+      typeof versao.regra === 'function' ||
+      typeof versao.calcular === 'function' ||
+      typeof versao.executar === 'function';
+
+    if (!possuiRegra) {
+      throw new Error(
+        `RegraVersionada: a versão "${versao.id}" deve possuir uma função de regra.`,
+      );
+    }
+
+    this.#obterLimitesVigencia(versao.vigencia);
+  }
+
+  #obterLimitesVigencia(vigencia) {
+    const inicio = vigencia.inicio;
+    const fim = vigencia.fim ?? null;
+
+    const inicioTexto = this.#competenciaParaTexto(inicio);
+
+    if (!inicioTexto) {
+      throw new Error(
+        'RegraVersionada: início de vigência deve ser uma competência YYYY-MM.',
+      );
+    }
+
+    const fimTexto =
+      fim === null ? null : this.#competenciaParaTexto(fim);
+
+    if (fim !== null && !fimTexto) {
+      throw new Error(
+        'RegraVersionada: fim de vigência deve ser uma competência YYYY-MM.',
+      );
+    }
+
+    if (fimTexto !== null && inicioTexto > fimTexto) {
+      throw new Error(
+        'RegraVersionada: início da vigência não pode ser posterior ao fim.',
+      );
+    }
+
+    return { inicio: inicioTexto, fim: fimTexto };
+  }
+
+  #competenciaParaTexto(valor) {
+    if (valor instanceof Competencia) {
+      return valor.toString();
     }
 
     if (
-      typeof versao.regra !== 'function' &&
-      typeof versao.calcular !== 'function' &&
-      typeof versao.executar !== 'function'
+      typeof valor === 'string' &&
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(valor)
     ) {
-      throw new Error(
-        `RegraVersionada: a versão "${versao.id}" deve possuir uma função de regra.`
-      );
+      return valor;
     }
+
+    return null;
   }
 
-  /**
-   * @private
-   */
-  #vigenciaContem(vigencia, data) {
-    if (typeof vigencia.estaVigenteEm === 'function') {
-      return vigencia.estaVigenteEm(data);
-    }
+  #vigenciasSobrepostas(vigenciaA, vigenciaB) {
+    const a = this.#obterLimitesVigencia(vigenciaA);
+    const b = this.#obterLimitesVigencia(vigenciaB);
 
-    if (typeof vigencia.contem === 'function') {
-      return vigencia.contem(data);
-    }
+    // Limites inclusivos: duas versões que abrangem o mesmo mês
+    // não podem coexistir.
+    const aTerminaDepoisDoInicioB =
+      a.fim === null || a.fim >= b.inicio;
 
-    const inicio = this.#obterData(vigencia.inicio);
-    const fim = this.#obterData(vigencia.fim);
+    const bTerminaDepoisDoInicioA =
+      b.fim === null || b.fim >= a.inicio;
 
-    if (!inicio) {
-      throw new Error('RegraVersionada: vigência sem início válido.');
-    }
-
-    return data >= inicio && (!fim || data <= fim);
+    return aTerminaDepoisDoInicioB && bTerminaDepoisDoInicioA;
   }
 
-  /**
-   * @private
-   */
-  #vigenciasSobrepostas(a, b) {
-    const inicioA = this.#inicioVigencia(a.vigencia);
-    const fimA = this.#fimVigencia(a.vigencia);
+  #compararInicio(vigenciaA, vigenciaB) {
+    const a = this.#obterLimitesVigencia(vigenciaA).inicio;
+    const b = this.#obterLimitesVigencia(vigenciaB).inicio;
 
-    const inicioB = this.#inicioVigencia(b.vigencia);
-    const fimB = this.#fimVigencia(b.vigencia);
-
-    const fimAefetivo = fimA ?? Infinity;
-    const fimBefetivo = fimB ?? Infinity;
-
-    return inicioA <= fimBefetivo && inicioB <= fimAefetivo;
-  }
-
-  /**
-   * @private
-   */
-  #inicioVigencia(vigencia) {
-    const inicio =
-      vigencia.inicio ??
-      vigencia.dataInicio ??
-      vigencia.inicioEm;
-
-    const data = this.#obterData(inicio);
-
-    if (!data) {
-      throw new Error('RegraVersionada: início de vigência inválido.');
-    }
-
-    return data.getTime();
-  }
-
-  /**
-   * @private
-   */
-  #fimVigencia(vigencia) {
-    const fim =
-      vigencia.fim ??
-      vigencia.dataFim ??
-      vigencia.fimEm;
-
-    const data = this.#obterData(fim);
-
-    return data ? data.getTime() : null;
-  }
-
-  /**
-   * @private
-   */
-  #obterData(valor) {
-    if (valor === undefined || valor === null || valor === '') {
-      return null;
-    }
-
-    if (valor instanceof Date) {
-      return Number.isNaN(valor.getTime()) ? null : valor;
-    }
-
-    const data = new Date(valor);
-
-    return Number.isNaN(data.getTime()) ? null : data;
+    return a.localeCompare(b);
   }
 }
 
