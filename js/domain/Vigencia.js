@@ -1,3 +1,5 @@
+import Competencia from "./Competencia.js";
+
 /**
  * Representa o período em que uma regra, tabela ou configuração
  * do domínio é válida.
@@ -70,6 +72,39 @@ class Vigencia {
     }
 
     return true;
+  }
+
+  /**
+   * Verifica se a vigência intersecta uma competência mensal.
+   *
+   * A competência é convertida explicitamente para o intervalo
+   * inclusivo do mês: primeiro ao último dia do mês. O método
+   * retorna true quando ao menos um dia desse mês pertence à
+   * vigência. Assim, uma vigência que começa ou termina no meio
+   * do mês ainda intersecta essa competência.
+   *
+   * Aceita uma instância de Competencia ou uma string YYYY-MM.
+   *
+   * @param {Competencia|string} competencia
+   * @returns {boolean}
+   */
+  contemCompetencia(competencia) {
+    const valor = Competencia.from(competencia);
+    const inicioMes = Vigencia.#normalizarData(
+      `${valor.ano}-${String(valor.mes).padStart(2, "0")}-01`
+    );
+    const fimMes = new Date(Date.UTC(
+      valor.ano,
+      valor.mes,
+      0
+    ));
+
+    const vigenciaComecaDepoisDoFimDoMes = this.inicio > fimMes;
+    const vigenciaTerminaAntesDoInicioDoMes =
+      this.fim !== null && this.fim < inicioMes;
+
+    return !vigenciaComecaDepoisDoFimDoMes &&
+      !vigenciaTerminaAntesDoInicioDoMes;
   }
 
   /**
