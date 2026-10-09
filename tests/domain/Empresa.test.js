@@ -1,4 +1,4 @@
-import Empresa from './Empresa.js';
+import Empresa from '../../js/domain/Empresa.js';
 
 describe('Empresa', () => {
   const CNPJ_VALIDO = '12.345.678/0001-95';
